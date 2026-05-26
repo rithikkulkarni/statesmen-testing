@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AG Grid Test</title>
+  <script type="module" crossorigin src="/assets/index-C8tZcvmf.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DIK9cKZl.css">
+</head>
+<body>
+  <main class="app">
+    <header class="appHeader">
+      <h1>Insurance Payments Prototype</h1>
+      <p>Interactive dataset views with JSON config persistence.</p>
+    </header>
+
+    <section class="panel controls">
+      <div class="controlGrid">
+        <div class="field">
+          <label for="datasetSelect">Dataset</label>
+          <select id="datasetSelect"></select>
+        </div>
+
+        <div class="field wide">
+          <label for="viewNameInput">Save Current As</label>
+          <input
+            id="viewNameInput"
+            type="text"
+            placeholder="e.g. Failed Payments by Carrier"
+          />
+        </div>
+        <div class="field buttonField">
+          <label class="visuallyHidden">Save View</label>
+          <button id="saveNamedView">Save View</button>
+        </div>
+
+        <div class="field wide">
+          <label for="savedViewSelect">Saved Views</label>
+          <select id="savedViewSelect"></select>
+        </div>
+        <div class="field buttonField">
+          <label class="visuallyHidden">Load View</label>
+          <button id="loadSelectedView">Load</button>
+        </div>
+        <div class="field buttonField">
+          <label class="visuallyHidden">Delete View</label>
+          <button id="deleteSelectedView" class="danger">Delete</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel aiPanel">
+      <div class="aiHeader">
+        <h2>AI Config Assistant</h2>
+        <p>Describe how you want the table changed, and AI will generate a full config JSON.</p>
+      </div>
+
+      <div class="aiComposer">
+        <textarea
+          id="chatPromptInput"
+          spellcheck="false"
+          placeholder="Example: show customer, carrier, amount; filter amount between 1000 and 3000; or only amount >= 2000; group by carrier; sort amount descending."
+        ></textarea>
+        <div class="aiActions">
+          <button id="chatSend">Generate + Apply</button>
+          <button id="chatClear" class="ghost">Clear</button>
+        </div>
+      </div>
+
+      <div id="chatStatus" data-tone="info" aria-live="polite">
+        Ask for any table transformation in plain English.
+      </div>
+    </section>
+
+    <section class="panel jsonPanel">
+      <div class="jsonHeader">
+        <h2>Table Config JSON</h2>
+        <div class="jsonActions">
+          <button id="applyConfig">Apply JSON</button>
+          <button id="exportConfig">Export Current</button>
+          <button id="resetConfig">Reset Default</button>
+        </div>
+      </div>
+
+      <textarea id="configInput" spellcheck="false"></textarea>
+      <div id="status" data-tone="info" aria-live="polite"></div>
+    </section>
+
+    <section class="panel gridPanel">
+      <p class="gridHint">
+        Multi-sort is enabled: click one header, then another to add secondary sorting.
+        Header badges show sort priority (1, 2, 3...).
+      </p>
+      <div id="myGrid" class="ag-theme-quartz"></div>
+    </section>
+  </main>
+
+</body>
+</html>

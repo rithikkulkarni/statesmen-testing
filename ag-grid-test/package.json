@@ -1,0 +1,16 @@
+{
+  "name": "ag-grid-test",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "test:ai-prompts": "node --test tests/ai_config_prompts.test.cjs",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5173"
+  },
+  "dependencies": {
+    "ag-grid-community": "^35.0.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}

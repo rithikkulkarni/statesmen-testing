@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "datasetId": "payments",
+  "columns": {
+    "order": [
+      "customer",
+      "carrier",
+      "amount",
+      "status",
+      "paymentMethod",
+      "invoiceDate",
+      "region",
+      "paymentId",
+      "policyNumber"
+    ],
+    "hidden": [
+      "policyNumber"
+    ],
+    "pinned": {
+      "customer": "left"
+    },
+    "widths": {
+      "customer": 250,
+      "amount": 170
+    }
+  },
+  "sort": [
+    {
+      "colId": "amount",
+      "sort": "desc"
+    },
+    {
+      "colId": "invoiceDate",
+      "sort": "asc"
+    }
+  ],
+  "filters": {
+    "status": {
+      "filterType": "text",
+      "type": "equals",
+      "filter": "Paid"
+    },
+    "amount": {
+      "min": 1000,
+      "max": 5000
+    }
+  },
+  "groupBy": [
+    "carrier",
+    "region"
+  ],
+  "aggregations": {
+    "amount": "sum"
+  },
+  "subtotals": {
+    "enabled": true,
+    "position": "bottom"
+  }
+}
