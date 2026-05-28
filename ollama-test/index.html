@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdminHub</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div id="app">
+
+<aside id="nav">
+    <div class="nav-brand">
+        <div class="nav-brand-row"><div class="nav-brand-icon">⚡</div>AdminHub</div>
+        <div class="nav-brand-sub">Network Platform</div>
+    </div>
+    <div class="nav-sec">Overview</div>
+    <div class="nav-item active" data-view="dashboard" onclick="go('dashboard')">📊 Dashboard</div>
+    <div class="nav-div"></div>
+    <div class="nav-sec">Manage</div>
+    <div class="nav-item" data-view="events"  onclick="go('events')">📅 Events</div>
+    <div class="nav-item" data-view="members" onclick="go('members')">👥 Members</div>
+    <div class="nav-div"></div>
+    <div class="nav-sec">Tools</div>
+    <div class="nav-item" data-view="comms"   onclick="go('comms')">✉️ Communications</div>
+    <div class="nav-item" data-view="reports" onclick="go('reports')">📈 Reports</div>
+</aside>
+
+<div id="main">
+    <div id="topbar">
+        <h1 id="pageTitle">Dashboard</h1>
+        <button id="aiBtn" onclick="toggleAI()"><div class="aiBtn-dot"></div>AI Assistant</button>
+    </div>
+    <div id="row">
+        <div id="page"></div>
+        <aside id="ai">
+            <div class="ai-hd">
+                <span class="ai-hd-title">AI Assistant</span>
+                <div class="ai-local"><div class="ai-ldot"></div>Running Locally</div>
+                <button class="ai-x" onclick="toggleAI()">×</button>
+            </div>
+            <div id="msgs">
+                <div class="ai-welcome">
+                    <div class="ai-welcome-icon">🤖</div>
+                    <h4>Skip the manual forms</h4>
+                    <p>Creating an event manually takes 15 fields. Adding a member takes 11. Just describe what you need — I'll ask for anything missing and handle the rest.</p>
+                    <div class="skip-note">Running entirely on your hardware · No data leaves your server</div>
+                </div>
+            </div>
+            <div id="qps">
+                <div class="qps-lbl">Try asking</div>
+                <div class="qps-list" id="qpsList"></div>
+            </div>
+            <div id="ai-inp">
+                <div class="inp-wrap">
+                    <textarea id="msgIn" rows="1" placeholder="Describe what you need…" onkeydown="onKey(event)" oninput="resize(this)"></textarea>
+                    <button class="send-btn" id="sendBtn" onclick="send()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                    <button class="stop-btn" id="stopBtn" style="display:none" onclick="stopGen()">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                    </button>
+                </div>
+                <div class="ai-ft"><div class="ai-ft-dot"></div>granite4.1:3b · Local Ollama</div>
+            </div>
+        </aside>
+    </div>
+</div>
+</div>
+
+<!-- ── EVENT MODAL ── -->
+<div id="evModal" class="modal-ov">
+  <div class="modal-box">
+    <div id="evAIBanner" class="ai-fill-banner" style="display:none">
+        <span class="fill-txt" id="evFillTxt">✨ AI auto-filled fields · Submitting…</span>
+        <div class="ai-prog-wrap"><div class="ai-prog-bar" id="evProgBar"></div></div>
+    </div>
+    <div class="modal-hd">
+        <div class="modal-hd-left">
+            <h3 id="evModalTitle">New Event</h3>
+            <div class="modal-hd-sub" id="evModalSub">Fill in the details to create an event <span class="fields-badge">15 fields</span></div>
+        </div>
+        <button class="modal-x" id="evCloseX" onclick="closeEvModal()">×</button>
+    </div>
+    <div class="modal-ai-hint" id="evAIHint">
+        💡 <button onclick="useAIInstead()">Use the AI assistant instead</button> — describe this event in one sentence and skip all 15 fields
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg full"><label>Event Name <span class="req">*</span></label><input id="evName" type="text" placeholder="e.g. Annual Network Gala 2025"></div>
+        <div class="fg"><label>Event Type <span class="req">*</span></label>
+          <select id="evType"><option value="">Select type…</option><option>Networking</option><option>Reunion</option><option>Career Fair</option><option>Workshop</option><option>Fundraiser</option><option>Social</option><option>Webinar</option><option>Other</option></select>
+        </div>
+        <div class="fg"><label>Status <span class="req">*</span></label>
+          <select id="evStatus"><option>Planning</option><option>Confirmed</option><option>Cancelled</option><option>Postponed</option></select>
+        </div>
+        <div class="fg"><label>Start Date <span class="req">*</span></label><input id="evDate" type="date"></div>
+        <div class="fg"><label>Start Time</label><input id="evTime" type="time"></div>
+        <div class="fg"><label>End Date</label><input id="evEndDate" type="date"></div>
+        <div class="fg"><label>Max Capacity <span class="req">*</span></label><input id="evCapacity" type="number" placeholder="e.g. 200" min="1"></div>
+        <div class="fg full"><label>Venue / Location <span class="req">*</span></label><input id="evVenue" type="text" placeholder="e.g. Grand Hotel, London"></div>
+        <div class="fg full"><label>Full Address</label><input id="evAddress" type="text" placeholder="Street address, City, Postcode"></div>
+        <div class="fg"><label>Country</label>
+          <select id="evCountry"><option value="">Select country…</option><option>United Kingdom</option><option>United States</option><option>Australia</option><option>Canada</option><option>France</option><option>Germany</option><option>UAE</option><option>India</option><option>Nigeria</option><option>Singapore</option><option>Virtual / Online</option><option>Other</option></select>
+        </div>
+        <div class="fg"><label>Registration Deadline</label><input id="evRegDeadline" type="date"></div>
+        <div class="fg"><label>Ticket Price (£)</label><input id="evPrice" type="number" placeholder="0 = free" min="0"></div>
+        <div class="fg full"><label>Description</label><textarea id="evDesc" rows="3" placeholder="Brief description of the event…"></textarea></div>
+        <div class="fg"><label>Organiser Email</label><input id="evOrganiser" type="email" placeholder="organiser@example.com"></div>
+        <div class="fg"><label>Tags</label><input id="evTags" type="text" placeholder="networking, london, 2025"></div>
+      </div>
+    </div>
+    <div class="modal-ft">
+        <button class="btn-ghost" id="evCancelBtn" onclick="closeEvModal()">Cancel</button>
+        <button class="btn-primary" id="evSubmitBtn" onclick="submitEvForm()">Create Event →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MEMBER MODAL ── -->
+<div id="mbModal" class="modal-ov">
+  <div class="modal-box">
+    <div id="mbAIBanner" class="ai-fill-banner" style="display:none">
+        <span class="fill-txt" id="mbFillTxt">✨ AI auto-filled fields · Submitting…</span>
+        <div class="ai-prog-wrap"><div class="ai-prog-bar" id="mbProgBar"></div></div>
+    </div>
+    <div class="modal-hd">
+        <div class="modal-hd-left">
+            <h3 id="mbModalTitle">Add Member</h3>
+            <div class="modal-hd-sub" id="mbModalSub">Complete member details to add to the network <span class="fields-badge">11 fields</span></div>
+        </div>
+        <button class="modal-x" id="mbCloseX" onclick="closeMbModal()">×</button>
+    </div>
+    <div class="modal-ai-hint" id="mbAIHint">
+        💡 <button onclick="useAIInstead()">Use the AI assistant instead</button> — add a member by describing them in plain English
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg"><label>Full Name <span class="req">*</span></label><input id="mbName" type="text" placeholder="e.g. Sarah Chen"></div>
+        <div class="fg"><label>Email <span class="req">*</span></label><input id="mbEmail" type="email" placeholder="e.g. s.chen@example.com"></div>
+        <div class="fg"><label>Phone Number</label><input id="mbPhone" type="tel" placeholder="+44 7700 900123"></div>
+        <div class="fg"><label>Graduation Year <span class="req">*</span></label><input id="mbYear" type="number" placeholder="e.g. 2015" min="1950" max="2030"></div>
+        <div class="fg"><label>Degree / Programme</label><input id="mbDegree" type="text" placeholder="e.g. BSc Computer Science"></div>
+        <div class="fg"><label>Chapter / Region <span class="req">*</span></label>
+          <select id="mbChapter"><option value="">Select chapter…</option><option>London</option><option>New York</option><option>Lagos</option><option>Seoul</option><option>Mumbai</option><option>Paris</option><option>Sydney</option><option>Dubai</option><option>Singapore</option><option>Toronto</option><option>Other</option></select>
+        </div>
+        <div class="fg"><label>Member Status <span class="req">*</span></label>
+          <select id="mbStatus"><option>Active</option><option>Inactive</option><option>Pending</option></select>
+        </div>
+        <div class="fg"><label>LinkedIn URL</label><input id="mbLinkedIn" type="url" placeholder="linkedin.com/in/…"></div>
+        <div class="fg"><label>Current Company</label><input id="mbCompany" type="text" placeholder="e.g. Acme Corp"></div>
+        <div class="fg"><label>Job Title</label><input id="mbJob" type="text" placeholder="e.g. Product Manager"></div>
+        <div class="fg full"><label>Notes</label><textarea id="mbNotes" rows="2" placeholder="Any additional notes…"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-ft">
+        <button class="btn-ghost" id="mbCancelBtn" onclick="closeMbModal()">Cancel</button>
+        <button class="btn-primary" id="mbSubmitBtn" onclick="submitMbForm()">Add Member →</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"><span id="toastMsg"></span></div>
+
+<script src="js/data.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/ai.js"></script>
+<script>go('dashboard');</script>
+</body>
+</html>
