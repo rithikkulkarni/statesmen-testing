@@ -3,9 +3,35 @@
 ## AI Config Setup
 
 1. Copy `.env.example` to `.env`.
-2. Set `GEMINI_API_KEY`.
-3. Optional: set `GEMINI_MODEL` (default is `gemini-2.5-flash-lite`).
-4. Run `npm run dev`.
+2. Choose an AI provider.
+3. Run `npm run dev`.
+
+### Gemini
+
+Set:
+
+```ini
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash-lite
+```
+
+### Ollama
+
+Start Ollama locally, pull a model, then set:
+
+```ini
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.1:8b
+```
+
+Example:
+
+```sh
+ollama pull llama3.1:8b
+ollama serve
+```
 
 The AI assistant in the UI sends your prompt to `/api/generate-config`, receives a full table config JSON, applies it to the grid, and updates the JSON editor.
 

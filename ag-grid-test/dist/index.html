@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AG Grid Test</title>
-  <script type="module" crossorigin src="/assets/index-C8tZcvmf.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-DIK9cKZl.css">
+  <title>SEP Demo</title>
+  <script type="module" crossorigin src="/assets/index-DczKbF1V.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-C8bdiQ2m.css">
 </head>
 <body>
   <main class="app">
@@ -51,25 +51,36 @@
 
     <section class="panel aiPanel">
       <div class="aiHeader">
-        <h2>AI Config Assistant</h2>
-        <p>Describe how you want the table changed, and AI will generate a full config JSON.</p>
+        <h2>AI Chat</h2>
+        <p>Ask about the data, follow up with more questions, or request a table change.</p>
       </div>
+
+      <div id="analysisOutput" class="analysisOutput" aria-live="polite"></div>
 
       <div class="aiComposer">
         <textarea
           id="chatPromptInput"
           spellcheck="false"
-          placeholder="Example: show customer, carrier, amount; filter amount between 1000 and 3000; or only amount >= 2000; group by carrier; sort amount descending."
+          placeholder="Example: show failed payments over $2,000, or ask what stands out in this dataset."
         ></textarea>
+        <div id="examplePrompts" class="examplePrompts" aria-label="Example prompts"></div>
         <div class="aiActions">
-          <button id="chatSend">Generate + Apply</button>
-          <button id="chatClear" class="ghost">Clear</button>
+          <button id="chatSend">Send</button>
+          <button id="chatClear" class="ghost">Clear Chat</button>
         </div>
       </div>
 
       <div id="chatStatus" data-tone="info" aria-live="polite">
-        Ask for any table transformation in plain English.
+        Ask anything about the dataset or request a table transformation.
       </div>
+    </section>
+
+    <section class="panel gridPanel">
+      <p class="gridHint">
+        Multi-sort is enabled: click one header, then another to add secondary sorting.
+        Header badges show sort priority (1, 2, 3...).
+      </p>
+      <div id="myGrid" class="ag-theme-quartz"></div>
     </section>
 
     <section class="panel jsonPanel">
@@ -84,14 +95,6 @@
 
       <textarea id="configInput" spellcheck="false"></textarea>
       <div id="status" data-tone="info" aria-live="polite"></div>
-    </section>
-
-    <section class="panel gridPanel">
-      <p class="gridHint">
-        Multi-sort is enabled: click one header, then another to add secondary sorting.
-        Header badges show sort priority (1, 2, 3...).
-      </p>
-      <div id="myGrid" class="ag-theme-quartz"></div>
     </section>
   </main>
 

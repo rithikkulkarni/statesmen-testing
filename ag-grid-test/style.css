@@ -34,11 +34,44 @@ body {
 }
 
 .app {
-  max-width: 1440px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 20px 20px 28px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
+}
+
+.appBody {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 14px;
+  align-items: start;
+}
+
+.mainContent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.chatSidebar {
+  position: sticky;
+  top: 20px;
+}
+
+.chatSidebar .aiPanel {
+  height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chatSidebar .analysisOutput {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .appHeader h1 {
@@ -62,25 +95,18 @@ body {
 
 .controls {
   padding-top: 16px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
 }
 
-.controlGrid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) auto;
+.controls .field {
+  flex: 1;
 }
 
 .field {
   display: grid;
   gap: 6px;
-}
-
-.field.wide {
-  grid-column: span 1;
-}
-
-.buttonField {
-  align-content: end;
 }
 
 label {
@@ -190,10 +216,187 @@ button.ghost:hover {
   min-height: 106px;
 }
 
+.aiPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .aiActions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+
+.analysisOutput {
+  border: 1px solid #c8d6e8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdff;
+  color: #1b2f4a;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  min-height: 300px;
+  overflow-y: auto;
+}
+
+.analysisOutput strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.analysisAnswer {
+  margin: 0 0 10px;
+}
+
+.conversationBar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.conversationTop {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.conversationSelect {
+  flex: 1;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.questionNav {
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+
+.restoreViewBtn {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  width: 100%;
+}
+
+.answerMeta {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.answerMetaChip {
+  font-size: 0.71rem;
+  color: var(--muted);
+  background: #f0f4fb;
+  border: 1px solid #d8e4f0;
+  border-radius: 4px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.chatMessage {
+  border: 1px solid #d8e4f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-width: 92%;
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.chatMessage--user {
+  align-self: flex-end;
+  background: #eef6ff;
+  border-color: #c9ddf5;
+}
+
+.chatMessage--assistant,
+.chatMessage--note {
+  align-self: flex-start;
+}
+
+.chatMessage--system {
+  align-self: center;
+  max-width: 100%;
+  background: #f6f8fb;
+  color: #445c79;
+}
+
+.chatMessageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #4c6280;
+}
+
+.chatMessageBody {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.analysisSection {
+  margin-top: 10px;
+}
+
+.analysisSection h3 {
+  margin: 0 0 4px;
+  font-size: 0.91rem;
+}
+
+.analysisSection ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.analysisSection li + li {
+  margin-top: 3px;
+}
+
+.analysisApply {
+  margin-top: 12px;
+}
+
+@keyframes thinkingSpin {
+  to { transform: rotate(360deg); }
+}
+
+.thinkingSpinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #c8d6e8;
+  border-top-color: #0f6d9f;
+  border-radius: 50%;
+  animation: thinkingSpin 0.75s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.thinkingText {
+  vertical-align: middle;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.chatMessage .analysisApply {
+  margin-top: 8px;
 }
 
 .jsonHeader {
@@ -327,23 +530,28 @@ button.ghost:hover {
   border: 0;
 }
 
-@media (max-width: 1020px) {
-  .controlGrid {
-    grid-template-columns: 1fr 1fr;
+@media (max-width: 1200px) {
+  .appBody {
+    grid-template-columns: 1fr;
   }
 
-  .buttonField {
-    align-content: stretch;
+  .chatSidebar {
+    position: static;
+  }
+
+  .chatSidebar .aiPanel {
+    height: auto;
+    max-height: 600px;
+  }
+
+  .chatSidebar .analysisOutput {
+    max-height: 300px;
   }
 }
 
 @media (max-width: 700px) {
   .app {
     padding: 14px;
-  }
-
-  .controlGrid {
-    grid-template-columns: 1fr;
   }
 
   .jsonActions {

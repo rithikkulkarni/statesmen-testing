@@ -35,7 +35,7 @@ const DATASET_SUMMARY = [
   {
     id: 'payments',
     label: 'Payments Baseline',
-    rowCount: 8,
+    rowCount: 50,
     sampleRows: [
       {
         paymentId: 1001,
@@ -75,7 +75,7 @@ const DATASET_SUMMARY = [
   {
     id: 'adjustments',
     label: 'Rebills & Adjustments',
-    rowCount: 8,
+    rowCount: 50,
     sampleRows: [
       {
         paymentId: 2001,
@@ -115,7 +115,7 @@ const DATASET_SUMMARY = [
   {
     id: 'exceptions',
     label: 'Exceptions Queue',
-    rowCount: 8,
+    rowCount: 50,
     sampleRows: [
       {
         paymentId: 3001,
@@ -198,17 +198,64 @@ function makeDefaultConfig() {
       pinned: {},
       widths: {},
     },
-    sort: [],
-    filters: {},
-    groupBy: [],
-    aggregations: {
-      amount: 'sum',
-    },
+  sort: [],
+  filters: {},
+  groupBy: [],
+  aggregations: {},
     subtotals: {
       enabled: false,
       position: 'bottom',
     },
   };
+}
+
+function mergeConfigPatch(currentConfig, patch) {
+  const merged = JSON.parse(JSON.stringify(currentConfig));
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return merged;
+  }
+
+  if (typeof patch.datasetId === 'string') {
+    merged.datasetId = patch.datasetId;
+  }
+
+  if (patch.columns && typeof patch.columns === 'object' && !Array.isArray(patch.columns)) {
+    merged.columns = {
+      ...merged.columns,
+      ...patch.columns,
+    };
+  }
+
+  if (Array.isArray(patch.sort)) {
+    merged.sort = patch.sort;
+  }
+
+  if (patch.filters && typeof patch.filters === 'object' && !Array.isArray(patch.filters)) {
+    merged.filters = {
+      ...merged.filters,
+      ...patch.filters,
+    };
+  }
+
+  if (Array.isArray(patch.groupBy)) {
+    merged.groupBy = patch.groupBy;
+  }
+
+  if (patch.aggregations && typeof patch.aggregations === 'object' && !Array.isArray(patch.aggregations)) {
+    merged.aggregations = {
+      ...merged.aggregations,
+      ...patch.aggregations,
+    };
+  }
+
+  if (patch.subtotals && typeof patch.subtotals === 'object' && !Array.isArray(patch.subtotals)) {
+    merged.subtotals = {
+      ...merged.subtotals,
+      ...patch.subtotals,
+    };
+  }
+
+  return merged;
 }
 
 function collectStrings(value, output = []) {
@@ -271,7 +318,10 @@ function hasMinFilterNumber(config, colId, minValue) {
 
 function assertSortIncludes(config, colId, direction, prompt) {
   const matching = config.sort.find(
-    (item) => item && item.colId === colId && item.sort === direction,
+    (item) =>
+      item &&
+      (item.field || item.colId) === colId &&
+      (item.direction || item.sort) === direction,
   );
   assert.ok(
     matching,
@@ -363,11 +413,12 @@ function assertConfigShape(config, prompt) {
   config.sort.forEach((sortItem, index) => {
     assert.ok(sortItem && typeof sortItem === 'object', `Prompt "${prompt}" sort[${index}] must be an object.`);
     assert.ok(
-      KNOWN_COLUMN_SET.has(sortItem.colId),
-      `Prompt "${prompt}" sort[${index}] has unknown colId "${sortItem.colId}".`,
+      KNOWN_COLUMN_SET.has(sortItem.field || sortItem.colId),
+      `Prompt "${prompt}" sort[${index}] has unknown field "${sortItem.field || sortItem.colId}".`,
     );
     assert.ok(
-      sortItem.sort === 'asc' || sortItem.sort === 'desc',
+      (sortItem.direction || sortItem.sort) === 'asc' ||
+        (sortItem.direction || sortItem.sort) === 'desc',
       `Prompt "${prompt}" sort[${index}] direction must be asc/desc.`,
     );
   });
@@ -525,7 +576,7 @@ function assertPromptIntent(config, prompt) {
       `Prompt "${prompt}" should filter region to Northeast and Midwest.`,
     );
     assert.ok(
-      config.sort.some((entry) => entry.colId === 'invoiceDate'),
+      config.sort.some((entry) => (entry.field || entry.colId) === 'invoiceDate'),
       `Prompt "${prompt}" should sort by invoiceDate.`,
     );
   }
@@ -798,11 +849,15 @@ async function postConfigPrompt(prompt) {
     }
 
     if (response.ok) {
+      const config =
+        json?.type === 'table_config_patch'
+          ? mergeConfigPatch(makeDefaultConfig(), json.patch)
+          : json.config;
       assert.ok(
-        json && typeof json.config === 'object',
+        config && typeof config === 'object',
         `Prompt "${prompt}" should return a config object.`,
       );
-      return json.config;
+      return config;
     }
 
     if (isRetryableRateLimit(response, json) && attempt <= MAX_PROMPT_RETRIES) {
