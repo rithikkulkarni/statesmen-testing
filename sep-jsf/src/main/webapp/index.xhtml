@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="jakarta.faces.html"
+      xmlns:f="jakarta.faces.core"
+      xmlns:p="http://primefaces.org/ui"
+      xmlns:ui="jakarta.faces.facelets">
+<h:head>
+    <title>SEP Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <h:outputStylesheet library="css" name="styles.css"/>
+    <!-- Chart.js 4.x (UMD build) — loads into window.Chart for renderSepChart() -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</h:head>
+<h:body>
+
+<div class="app">
+
+    <header class="appHeader">
+        <h1>Insurance Payments Prototype</h1>
+        <p>Interactive dataset views with JSON config persistence.</p>
+    </header>
+
+    <div class="appBody">
+
+        <!-- ── Main content ───────────────────────────────────────── -->
+        <div class="mainContent">
+
+            <!-- Controls -->
+            <section class="panel controls">
+                <h:form id="controlsForm">
+                    <div class="field">
+                        <p:outputLabel for="dsSelect" value="Dataset"/>
+                        <p:selectOneMenu id="dsSelect" value="#{appBean.selectedDataset}" styleClass="dsSelect">
+                            <f:selectItems value="#{appBean.datasetOptions}"/>
+                            <p:ajax listener="#{appBean.onDatasetChange}"
+                                    update="mainForm jsonForm" process="@this"/>
+                        </p:selectOneMenu>
+                    </div>
+                    <p:commandButton value="Reset View" styleClass="ghost"
+                                     action="#{appBean.resetView}"
+                                     update="mainForm jsonForm" ajax="true"/>
+                </h:form>
+            </section>
+
+            <!-- Grid panel -->
+            <section class="panel gridPanel">
+                <p class="gridHint">
+                    Drag headers to reorder · Drag borders to resize · Shift+click for multi-sort · Type in header inputs to filter
+                </p>
+                <h:form id="mainForm">
+                    <p:commandButton value="&#8617; Restore Dataset View"
+                                     rendered="#{appBean.analysisViewActive}"
+                                     action="#{appBean.restoreDatasetView}"
+                                     update="mainForm jsonForm" ajax="true"
+                                     styleClass="ghost restoreBtn"/>
+
+                    <p:dataTable id="mainTable"
+                                 var="row"
+                                 value="#{appBean.currentRows}"
+                                 filteredValue="#{appBean.filteredRows}"
+                                 sortMode="multiple"
+                                 multiSortMeta="#{appBean.sortMeta}"
+                                 emptyMessage="No records found."
+                                 styleClass="mainDataTable"
+                                 showGridlines="true"
+                                 stripedRows="true"
+                                 reorderableColumns="true"
+                                 resizableColumns="true"
+                                 columnResizeMode="fit">
+
+                        <p:ajax event="sort"
+                                listener="#{appBean.onSort}"
+                                update="jsonForm" process="@this"/>
+
+                        <p:ajax event="colReorder"
+                                listener="#{appBean.onColumnReorder}"
+                                update="jsonForm" process="@this"/>
+
+                        <!-- Fixed action column — always first, shows in every view including SQL results -->
+                        <p:column reorderable="false" styleClass="actionCol" style="width:44px;text-align:center;" exportable="false">
+                            <f:facet name="header">&#160;</f:facet>
+                            <p:commandButton title="View record"
+                                             styleClass="ghost rowViewBtn"
+                                             value="&#8942;"
+                                             process="@none"
+                                             update=":mainForm:rowDetailDialog"
+                                             oncomplete="PF('rowDetailDlg').show()"
+                                             ajax="true">
+                                <f:setPropertyActionListener value="#{row}"
+                                                             target="#{appBean.selectedRow}"/>
+                            </p:commandButton>
+                        </p:column>
+
+                        <p:columns value="#{appBean.visibleColumns}" var="col"
+                                   sortBy="#{row[col.field]}"
+                                   filterBy="#{row[col.field]}"
+                                   filterMatchMode="#{col.filterMatchMode}"
+                                   headerText="#{col.headerText}"
+                                   style="#{col.width gt 0 ? 'min-width:'.concat(col.width).concat('px') : 'min-width:100px'}">
+
+                            <h:outputText value="#{row[col.field]}" rendered="#{!col.currency}"/>
+                            <h:outputText value="#{row[col.field]}" rendered="#{col.currency}">
+                                <f:convertNumber type="currency" currencySymbol="$" locale="en_US"
+                                                 groupingUsed="true" minFractionDigits="2" maxFractionDigits="2"/>
+                            </h:outputText>
+
+                            <f:facet name="footer">
+                                <h:outputText value="#{appBean.getColumnFooter(col)}"
+                                              rendered="#{appBean.getColumnFooter(col) != null}"/>
+                            </f:facet>
+                        </p:columns>
+                    </p:dataTable>
+
+                    <!-- Record detail dialog -->
+                    <p:dialog id="rowDetailDialog"
+                              widgetVar="rowDetailDlg"
+                              header="Record Details"
+                              modal="true"
+                              responsive="true"
+                              width="480"
+                              styleClass="rowDetailDialog"
+                              closeOnEscape="true">
+                        <h:panelGroup layout="block" styleClass="rowDetailBody"
+                                      rendered="#{appBean.selectedRow != null}">
+                            <ui:repeat value="#{appBean.selectedRowEntries}" var="entry">
+                                <div class="rowDetailRow">
+                                    <span class="rowDetailKey">#{appBean.formatFieldName(entry.key)}</span>
+                                    <span class="rowDetailVal">
+                                        <h:outputText value="#{entry.value}" rendered="#{!appBean.isSelectedRowCurrency(entry.key)}"/>
+                                        <h:outputText value="#{entry.value}" rendered="#{appBean.isSelectedRowCurrency(entry.key)}">
+                                            <f:convertNumber type="currency" currencySymbol="$" locale="en_US"
+                                                             groupingUsed="true" minFractionDigits="2" maxFractionDigits="2"/>
+                                        </h:outputText>
+                                    </span>
+                                </div>
+                            </ui:repeat>
+                        </h:panelGroup>
+                    </p:dialog>
+
+                </h:form>
+            </section>
+
+            <!-- ── Chart panel — only shown when AI produced chart data ── -->
+            <h:panelGroup id="chartPanel" layout="block">
+                <!--
+                    The JSON store span is always in the DOM so AJAX updates can refresh it.
+                    JavaScript reads from it to render Chart.js without going through
+                    the PrimeFaces chart component.
+                -->
+                <span id="chartJsonStore" style="display:none">
+                    <h:outputText value="#{appBean.currentChartJson != null ? appBean.currentChartJson : ''}"
+                                  escape="false"/>
+                </span>
+
+                <h:panelGroup layout="block"
+                              rendered="#{appBean.currentChartJson != null}"
+                              styleClass="panel chartPanel">
+                    <div class="chartPanelHeader">
+                        <h:form id="chartTitleForm" styleClass="chartTitleForm">
+                            <h3 id="chartTitleDisplay"
+                                class="chartPanelTitle"
+                                title="Click to edit title"
+                                onclick="startEditChartTitle()">#{appBean.currentChartTitle}</h3>
+                            <p:inputText id="chartTitleInput"
+                                         value="#{appBean.currentChartTitle}"
+                                         style="display:none"
+                                         styleClass="chartTitleInput"
+                                         maxlength="150"/>
+                            <p:commandButton id="chartTitleSaveBtn"
+                                             value=" "
+                                             style="display:none;position:absolute;pointer-events:none"
+                                             process="chartTitleInput"
+                                             update=":chartTitleForm"
+                                             ajax="true"/>
+                        </h:form>
+                        <h:form id="chartCloseForm">
+                            <p:commandButton value="&#215; Dismiss"
+                                             action="#{appBean.clearChart}"
+                                             update=":chartPanel :mainForm"
+                                             ajax="true"
+                                             styleClass="ghost chartDismissBtn"
+                                             oncomplete="renderSepChart()"/>
+                        </h:form>
+                    </div>
+                    <div class="chartCanvasWrap">
+                        <canvas id="mainChartCanvas"/>
+                    </div>
+                </h:panelGroup>
+            </h:panelGroup>
+
+            <!-- Table Config JSON + Visual Config JSON side by side -->
+            <div class="jsonPanelsRow">
+
+                <!-- Table Config JSON -->
+                <section class="panel jsonPanel jsonPanelHalf">
+                    <h:form id="jsonForm">
+                        <div class="jsonHeader">
+                            <h2>Table Config JSON</h2>
+                            <div class="jsonActions">
+                                <p:commandButton value="Apply JSON"
+                                                 action="#{appBean.applyConfig}"
+                                                 update="mainForm jsonForm" ajax="true" styleClass="primaryBtn"/>
+                                <p:commandButton value="Export Current"
+                                                 action="#{appBean.exportConfig}"
+                                                 update="jsonForm" ajax="true" styleClass="ghost"/>
+                                <p:commandButton value="Reset Default"
+                                                 action="#{appBean.resetConfig}"
+                                                 update="mainForm jsonForm" ajax="true" styleClass="ghost"/>
+                            </div>
+                        </div>
+                        <p:inputTextarea id="configInput" value="#{appBean.configJson}"
+                                         styleClass="configTextarea"/>
+                        <h:panelGroup id="statusPanel" layout="block" styleClass="statusArea">
+                            <h:outputText value="#{appBean.statusMessage}"
+                                          styleClass="status status--#{appBean.statusTone}"/>
+                        </h:panelGroup>
+                    </h:form>
+                </section>
+
+                <!-- Visual Config JSON -->
+                <section class="panel jsonPanel jsonPanelHalf">
+                    <h:form id="visualJsonForm">
+                        <div class="jsonHeader">
+                            <h2>Visual Config JSON</h2>
+                            <div class="jsonActions">
+                                <!-- Apply: writes edited JSON back to bean and re-renders chart -->
+                                <p:commandButton value="Apply"
+                                                 update=":chartPanel"
+                                                 ajax="true"
+                                                 styleClass="primaryBtn"
+                                                 oncomplete="renderSepChart()"
+                                                 rendered="#{appBean.currentChartJson != null}"/>
+                                <p:commandButton value="Clear"
+                                                 action="#{appBean.clearChart}"
+                                                 update=":chartPanel visualJsonForm"
+                                                 ajax="true"
+                                                 styleClass="ghost"
+                                                 rendered="#{appBean.currentChartJson != null}"
+                                                 oncomplete="renderSepChart()"/>
+                            </div>
+                        </div>
+                        <p:inputTextarea id="visualConfigInput"
+                                         value="#{appBean.currentChartJson}"
+                                         styleClass="configTextarea visualConfigTextarea"
+                                         placeholder="No visual data yet — ask the AI for a chart or analysis."/>
+                    </h:form>
+                </section>
+
+            </div>
+
+        </div><!-- /mainContent -->
+
+        <!-- ── AI Sidebar ──────────────────────────────────────────── -->
+        <aside class="chatSidebar">
+            <section class="panel aiPanel">
+                <div class="aiHeader">
+                    <div class="aiHeaderTop">
+                        <h2>AI Analyst</h2>
+                        <p:commandButton value="+ New Chat"
+                                         action="#{aiBean.newChat}"
+                                         update="chatForm convNavForm"
+                                         ajax="true" styleClass="ghost newChatBtn"
+                                         oncomplete="scrollChatToBottom()"/>
+                    </div>
+                    <p>Ask a question, request a chart, or change the table view.</p>
+                </div>
+
+                <!-- ── Conversation navigation bar ────────────────────── -->
+                <h:form id="convNavForm" styleClass="convNavForm">
+
+                    <!-- Saved conversations dropdown (hidden until at least one exists) -->
+                    <p:selectOneMenu id="convSelect"
+                                     value="#{aiBean.selectedConvId}"
+                                     styleClass="convSelect"
+                                     rendered="#{aiBean.hasConversations}">
+                        <f:selectItems value="#{aiBean.conversationOptions}"/>
+                        <p:ajax listener="#{aiBean.onConversationChange}"
+                                update="chatForm convNavForm"
+                                process="convSelect"
+                                oncomplete="scrollChatToBottom()"/>
+                    </p:selectOneMenu>
+
+                    <!-- Question navigation (hidden until current chat has at least one user message) -->
+                    <p:selectOneMenu id="questionNav"
+                                     value="#{aiBean.selectedQuestionId}"
+                                     styleClass="questionNav"
+                                     rendered="#{aiBean.hasQuestions}">
+                        <f:selectItems value="#{aiBean.questionOptions}"/>
+                        <p:ajax listener="#{aiBean.onQuestionSelect}"
+                                update="convNavForm"
+                                process="questionNav"/>
+                    </p:selectOneMenu>
+
+                </h:form>
+
+                <h:form id="chatForm" styleClass="chatForm">
+                    <div id="chatOutput" class="analysisOutput">
+                        <ui:repeat value="#{aiBean.messages}" var="msg" varStatus="stat">
+                            <article class="chatMessage chatMessage--#{msg.role}"
+                                     data-msg-idx="#{stat.index}">
+                                <div class="chatMessageHeader">
+                                    <span class="chatTitle">#{msg.title}</span>
+                                </div>
+                                <div class="chatMessageBody">
+                                    <h:outputText value="#{msg.htmlContent}" escape="false"/>
+                                </div>
+                                <h:panelGroup layout="block" styleClass="restoreFromChatWrap"
+                                              rendered="#{msg.snapshotId != null}">
+                                    <p:commandButton value="&#8617; Restore this view"
+                                                     action="#{appBean.restoreSnapshot(msg.snapshotId)}"
+                                                     update="mainForm jsonForm"
+                                                     ajax="true"
+                                                     styleClass="ghost restoreFromChat"
+                                                     oncomplete="document.getElementById('mainForm').scrollIntoView({behavior:'smooth'})"/>
+                                </h:panelGroup>
+                            </article>
+                        </ui:repeat>
+                    </div>
+
+                    <div class="aiComposer">
+                        <p:inputTextarea id="promptInput"
+                                         value="#{aiBean.promptInput}"
+                                         placeholder="Example: chart failed payments by carrier"
+                                         styleClass="promptTextarea"/>
+                        <div class="aiActions">
+                            <p:commandButton id="sendBtn"
+                                             value="#{aiBean.busy ? 'Thinking…' : 'Send'}"
+                                             action="#{aiBean.send}"
+                                             update="chatForm mainForm jsonForm :chartPanel :visualJsonForm convNavForm"
+                                             ajax="true"
+                                             process="promptInput @this"
+                                             disabled="#{aiBean.busy}"
+                                             styleClass="primaryBtn sendBtn"
+                                             oncomplete="scrollChatToBottom(); renderSepChart()"/>
+                        </div>
+                    </div>
+
+                    <div class="chatStatusBar">
+                        <h:outputText value="#{aiBean.statusMessage}"/>
+                    </div>
+                </h:form>
+            </section>
+        </aside>
+
+    </div>
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+    /**
+     * Reads the Chart.js config JSON from the hidden store span and renders it.
+     * Called from oncomplete after every AI send.  Uses a short setTimeout so
+     * the browser has time to lay out the canvas before Chart.js measures it.
+     */
+    function renderSepChart() {
+        setTimeout(function() { _doRenderSepChart(); }, 30);
+    }
+
+    function _doRenderSepChart() {
+        if (typeof Chart === 'undefined') {
+            console.warn('Chart.js (window.Chart) not available yet — retrying in 200ms');
+            setTimeout(function() { _doRenderSepChart(); }, 200);
+            return;
+        }
+
+        // Destroy any existing chart first
+        if (window._sepChart) {
+            try { window._sepChart.destroy(); } catch(e) {}
+            window._sepChart = null;
+        }
+
+        var store  = document.getElementById('chartJsonStore');
+        var canvas = document.getElementById('mainChartCanvas');
+
+        if (!canvas) return; // panel not rendered — no chart needed
+
+        var raw  = store ? (store.textContent || store.innerText || '').trim() : '';
+        if (!raw) return;  // AppBean has no chart data
+
+        var cfg;
+        try {
+            cfg = JSON.parse(raw);
+        } catch(e) {
+            console.error('Chart JSON parse error:', e, '\nRaw:', raw.slice(0, 200));
+            return;
+        }
+
+        // Inject standard options — chart data JSON only carries type + data
+        cfg.options = cfg.options || {};
+        cfg.options.responsive          = true;
+        cfg.options.maintainAspectRatio = false;
+        cfg.options.animation           = { duration: 400 };
+        cfg.options.plugins             = cfg.options.plugins || {};
+        cfg.options.plugins.legend      = {
+            position : 'top',
+            labels   : { boxWidth: 13, font: { size: 12 } }
+        };
+        cfg.options.plugins.tooltip     = { mode: 'index', intersect: false };
+
+        if (cfg.type !== 'pie' && cfg.type !== 'doughnut') {
+            cfg.options.scales   = cfg.options.scales || {};
+            cfg.options.scales.y = cfg.options.scales.y || {};
+            cfg.options.scales.y.beginAtZero = true;
+            cfg.options.scales.y.grid  = { color: 'rgba(0,0,0,0.06)' };
+            cfg.options.scales.y.ticks = { font: { size: 11 } };
+            cfg.options.scales.x = cfg.options.scales.x || {};
+            cfg.options.scales.x.grid  = { display: false };
+            cfg.options.scales.x.ticks = { font: { size: 11 }, maxRotation: 45 };
+        }
+
+        try {
+            window._sepChart = new Chart(canvas, cfg);
+        } catch(e) {
+            console.error('Chart.js constructor error:', e);
+        }
+    }
+
+    function startEditChartTitle() {
+        var display = document.getElementById('chartTitleDisplay');
+        var input   = document.getElementById('chartTitleForm:chartTitleInput');
+        if (!display || !input) return;
+        display.style.display = 'none';
+        input.value = display.textContent.trim();
+        input.style.display = '';
+        input.focus();
+        input.select();
+        input.onkeydown = function(e) {
+            if (e.key === 'Enter')  { e.preventDefault(); _commitChartTitle(display, input); }
+            if (e.key === 'Escape') { _cancelChartTitleEdit(display, input); }
+        };
+        input.onblur = function() { _commitChartTitle(display, input); };
+    }
+
+    function _commitChartTitle(display, input) {
+        if (!input || input.style.display === 'none') return;
+        input.onblur    = null;
+        input.onkeydown = null;
+        var newTitle = input.value.trim() || display.textContent.trim();
+        display.textContent = newTitle;
+        display.style.display = '';
+        input.style.display   = 'none';
+        var btn = document.getElementById('chartTitleForm:chartTitleSaveBtn');
+        if (btn) btn.click();
+    }
+
+    function _cancelChartTitleEdit(display, input) {
+        input.onblur    = null;
+        input.onkeydown = null;
+        input.style.display   = 'none';
+        display.style.display = '';
+    }
+
+    function scrollChatToBottom() {
+        var el = document.getElementById('chatOutput');
+        if (el) el.scrollTop = el.scrollHeight;
+    }
+
+    function scrollToQuestion(idx) {
+        if (idx === undefined || idx === null || idx === '') return;
+        var el = document.querySelector('#chatOutput [data-msg-idx="' + idx + '"]');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    window.addEventListener('load', function() {
+        scrollChatToBottom();
+        renderSepChart();
+    });
+//]]>
+</script>
+
+</h:body>
+</html>

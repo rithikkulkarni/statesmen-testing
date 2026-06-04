@@ -1,0 +1,570 @@
+/* ── Reset & tokens ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg:          #f5f6fa;
+    --surface:     #ffffff;
+    --border:      #e2e5ed;
+    --text:        #1a1d26;
+    --muted:       #6b7280;
+    --accent:      #4f6ef7;
+    --accent-dark: #3b57e0;
+    --green:       #16a34a;
+    --yellow:      #ca8a04;
+    --red:         #dc2626;
+    --radius:      8px;
+    --shadow:      0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body { background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.appHeader {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    box-shadow: var(--shadow);
+}
+.appHeader h1 { font-size: 1.25rem; font-weight: 600; }
+.appHeader p  { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+
+.appBody {
+    display: flex;
+    flex: 1;
+    gap: 16px;
+    padding: 16px;
+    align-items: flex-start;
+    min-height: 0;
+}
+
+.mainContent {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.chatSidebar {
+    width: 360px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Panel ───────────────────────────────────────────────────────────────── */
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+.controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.controls form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.field { display: flex; align-items: center; gap: 8px; }
+.field label, .field .ui-outputlabel { font-weight: 500; font-size: 0.85rem; white-space: nowrap; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.ui-button, .ui-commandlink {
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    transition: background 0.15s, border-color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.ui-button .ui-button-text { pointer-events: none; }
+
+.ghost.ui-button {
+    background: transparent !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+.ghost.ui-button:hover { border-color: var(--accent) !important; color: var(--accent) !important; }
+
+.primaryBtn.ui-button {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #fff !important;
+}
+.primaryBtn.ui-button:hover { background: var(--accent-dark) !important; }
+
+.primaryBtn.ui-button[disabled],
+.primaryBtn.ui-button.ui-state-disabled { opacity: 0.6; cursor: not-allowed; }
+
+.colToggleBtn { margin-bottom: 8px; }
+.restoreBtn          { margin-bottom: 8px; margin-right: 6px; color: var(--accent) !important; border-color: var(--accent) !important; }
+.restoreFromChatWrap { margin-top: 8px; }
+.restoreFromChat.ui-button { font-size: 0.75rem !important; padding: 4px 10px !important; color: var(--accent) !important; border-color: var(--accent) !important; background: transparent !important; width: 100%; }
+.applyColBtn  { margin-top: 8px; width: 100%; }
+.newChatBtn   { font-size: 0.75rem !important; padding: 3px 8px !important; }
+.sendBtn      { width: 100%; }
+
+/* ── PrimeFaces SelectOneMenu ────────────────────────────────────────────── */
+.ui-selectonemenu {
+    display: inline-flex !important;
+    align-items: stretch;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    background: var(--surface) !important;
+    cursor: pointer;
+    min-width: 180px;
+    height: 32px;
+    overflow: visible;
+    position: relative;
+    vertical-align: middle;
+}
+.ui-selectonemenu:hover  { border-color: var(--accent) !important; }
+.ui-selectonemenu.ui-state-focus { border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(79,110,247,.18) !important; outline: none !important; }
+
+.ui-selectonemenu .ui-selectonemenu-label {
+    flex: 1;
+    padding: 0 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    line-height: 30px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    background: transparent !important;
+    border: none !important;
+    color: var(--text);
+}
+.ui-selectonemenu .ui-selectonemenu-trigger {
+    width: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid var(--border);
+    background: var(--bg);
+    flex-shrink: 0;
+    border-radius: 0 5px 5px 0;
+    color: var(--muted);
+    font-size: 10px;
+}
+.ui-selectonemenu-panel {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12) !important;
+    background: var(--surface) !important;
+    z-index: 9999 !important;
+}
+.ui-selectonemenu-items { padding: 4px 0 !important; margin: 0 !important; }
+.ui-selectonemenu-item {
+    padding: 7px 12px !important;
+    font-size: 0.85rem !important;
+    cursor: pointer;
+    color: var(--text);
+}
+.ui-selectonemenu-item:hover,
+.ui-selectonemenu-item.ui-state-highlight {
+    background: #eef2ff !important;
+    color: var(--accent) !important;
+}
+
+/* ── PrimeFaces Checkbox ─────────────────────────────────────────────────── */
+.ui-chkbox { display: inline-flex; align-items: center; }
+.ui-chkbox-box {
+    width: 16px; height: 16px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.ui-chkbox-box.ui-state-active { background: var(--accent); border-color: var(--accent); }
+.ui-chkbox-icon { color: #fff; font-size: 10px; }
+
+/* ── Grid hint ───────────────────────────────────────────────────────────── */
+.gridHint { font-size: 0.78rem; color: var(--muted); margin-bottom: 10px; }
+
+/* ── DataTable ───────────────────────────────────────────────────────────── */
+.mainDataTable .ui-datatable-header { display: none; }
+
+/* Scroll the table body without PrimeFaces scrollable mode (which duplicates headers).
+   position:sticky on thead keeps column headers fixed while the body scrolls. */
+.mainDataTable .ui-datatable-tablewrapper {
+    border-radius: var(--radius);
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 520px;
+    display: block;
+}
+
+.mainDataTable table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.82rem;
+}
+
+.mainDataTable th {
+    background: var(--bg) !important;
+    color: var(--muted) !important;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border-bottom: 2px solid var(--border) !important;
+    padding: 8px 10px !important;
+    white-space: nowrap;
+    /* Sticky header — stays visible while rows scroll beneath */
+    position: sticky;
+    top: 0;
+    z-index: 4;
+}
+.mainDataTable td {
+    padding: 7px 10px !important;
+    border-bottom: 1px solid var(--border) !important;
+    vertical-align: middle;
+}
+.mainDataTable .ui-datatable-even td { background: #f9fafb; }
+.mainDataTable tbody tr:hover td { background: #eef2ff !important; }
+.mainDataTable tfoot td {
+    background: var(--bg) !important;
+    font-weight: 600;
+    border-top: 2px solid var(--border) !important;
+    padding: 7px 10px !important;
+}
+
+.ui-sortable-column-icon { color: var(--accent) !important; margin-left: 4px; }
+.ui-sortable-column.ui-state-active { background: #f0f4ff !important; }
+
+.ui-column-filter {
+    width: 100% !important;
+    font-size: 0.8rem;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-top: 4px;
+    font-family: inherit;
+    background: var(--surface);
+}
+.ui-column-filter:focus { outline: none; border-color: var(--accent); }
+
+.ui-paginator {
+    background: var(--bg) !important;
+    border-top: 1px solid var(--border) !important;
+    padding: 8px 12px !important;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+.ui-paginator .ui-paginator-page.ui-state-active {
+    background: var(--accent) !important;
+    color: #fff !important;
+    border-color: var(--accent) !important;
+    border-radius: 4px;
+}
+.ui-paginator .ui-paginator-element {
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+/* ── Column toggle overlay ───────────────────────────────────────────────── */
+.colToggleOverlay .ui-overlaypanel-content { padding: 12px; min-width: 200px; }
+.colToggleRow { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 0.85rem; }
+
+/* ── JSON panels row (Table Config + Visual Config side by side) ─────────── */
+.jsonPanelsRow {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+}
+.jsonPanelHalf { flex: 1; min-width: 0; }
+
+/* Visual config textarea is slightly shorter since it has fewer buttons */
+.visualConfigTextarea { height: 200px !important; }
+.visualConfigTextarea::placeholder { color: var(--muted); font-style: italic; font-size: 0.82rem; }
+
+/* ── JSON panel ──────────────────────────────────────────────────────────── */
+.jsonPanel form { display: block; }
+
+.jsonHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.jsonHeader h2 { font-size: 0.95rem; font-weight: 600; }
+.jsonActions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.configTextarea {
+    display: block !important;
+    width: 100% !important;
+    height: 220px !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    padding: 8px !important;
+    background: #fafafa !important;
+    font-family: monospace !important;
+    font-size: 12px !important;
+    resize: vertical;
+    line-height: 1.5;
+}
+.configTextarea:focus { outline: none !important; border-color: var(--accent) !important; }
+
+/* ── Status bar ──────────────────────────────────────────────────────────── */
+.statusArea { margin-top: 8px; min-height: 18px; }
+.status { font-size: 0.8rem; }
+.status--info    { color: var(--muted); }
+.status--success { color: var(--green); }
+.status--warn    { color: var(--yellow); }
+.status--error   { color: var(--red); }
+
+/* ── AI panel — fixed height, chat scrolls, composer always visible ──────── */
+.aiPanel {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1;
+    overflow: hidden;
+    padding: 16px;
+}
+
+.aiHeader { flex-shrink: 0; margin-bottom: 12px; }
+.aiHeaderTop { display: flex; justify-content: space-between; align-items: center; }
+
+/* ── Conversation navigation bar ─────────────────────────────────────────── */
+.convNavForm {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 8px;
+}
+.convSelect, .questionNav { width: 100% !important; min-width: 0 !important; }
+/* Tighter label text in the two nav dropdowns */
+.convSelect  .ui-selectonemenu-label,
+.questionNav .ui-selectonemenu-label { font-size: 0.8rem !important; }
+.aiHeader h2 { font-size: 0.95rem; font-weight: 600; }
+.aiHeader p  { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+
+/* The form is the actual scrolling container */
+.chatForm {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;        /* critical: allows flex child to shrink */
+    overflow: hidden;
+    gap: 10px;
+}
+
+.analysisOutput {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;        /* critical: enables scroll within flex */
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* ── Chat messages ───────────────────────────────────────────────────────── */
+.chatMessage {
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-size: 0.83rem;
+    line-height: 1.5;
+    flex-shrink: 0;
+}
+.chatMessage--user {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    align-self: flex-end;
+    max-width: 92%;
+}
+.chatMessage--assistant {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    width: 100%;
+}
+.chatMessageHeader { margin-bottom: 4px; }
+.chatTitle {
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.chatMessageBody p  { margin: 4px 0; }
+.chatMessageBody ul { padding-left: 18px; margin: 4px 0; }
+.chatMessageBody li { margin: 2px 0; }
+
+.analysis-answer { font-size: 0.85rem; }
+.analysis-section h4 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin: 8px 0 4px;
+}
+.config-applied { font-size: 0.75rem; color: var(--green); font-style: italic; margin-top: 4px; }
+
+/* ── Row view action column ──────────────────────────────────────────────── */
+.actionCol { padding: 4px 6px !important; }
+.rowViewBtn.ui-button {
+    padding: 2px 6px !important;
+    font-size: 1rem !important;
+    line-height: 1;
+    color: var(--muted) !important;
+    border-color: transparent !important;
+    background: transparent !important;
+    min-width: 28px;
+}
+.rowViewBtn.ui-button:hover { color: var(--accent) !important; }
+
+/* ── Record detail dialog ─────────────────────────────────────────────────── */
+.rowDetailBody { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding: 4px 0; }
+.rowDetailRow {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 7px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+.rowDetailRow:last-child { border-bottom: none; }
+.rowDetailKey {
+    flex: 0 0 160px;
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+}
+.rowDetailVal { flex: 1; color: var(--text); word-break: break-word; }
+
+/* ── Dedicated chart panel (main content area) ───────────────────────────── */
+.chartPanel { padding: 16px; }
+
+.chartPanelHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.chartTitleForm {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+}
+.chartTitleForm .ui-form-group,
+.chartTitleForm > span { display: block; }
+.chartPanelTitle {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-block;
+    max-width: 100%;
+    transition: background 0.15s;
+}
+.chartPanelTitle:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+.chartPanelTitle:hover::after {
+    content: ' ✎';
+    font-size: 0.75rem;
+    opacity: 0.45;
+}
+.chartTitleInput.ui-inputtext,
+.chartTitleInput {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    font-family: inherit;
+    background: transparent;
+    border: 1.5px solid var(--primary, #4f6ef7);
+    border-radius: 4px;
+    padding: 2px 6px;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.15);
+}
+.chartDismissBtn.ui-button {
+    font-size: 0.78rem !important;
+    padding: 3px 9px !important;
+    color: var(--muted) !important;
+    border-color: var(--border) !important;
+}
+.chartCanvasWrap {
+    position: relative;
+    height: 360px;
+    width: 100%;
+}
+.chartCanvasWrap canvas { display: block; }
+
+/* ── Inline charts inside chat messages ──────────────────────────────────── */
+.chartContainer {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+.chartContainer canvas { border-radius: 4px; }
+.ai-error { color: var(--red); }
+
+.answerMeta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.answerMetaChip {
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    border-radius: 20px;
+    background: #eef2ff;
+    color: var(--accent);
+    border: 1px solid #c7d2fe;
+    white-space: nowrap;
+}
+
+/* ── AI composer — pinned to bottom, never scrolls away ─────────────────── */
+.aiComposer { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.promptTextarea {
+    display: block !important;
+    width: 100% !important;
+    height: 72px !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    padding: 8px !important;
+    font-size: 0.85rem !important;
+    font-family: inherit !important;
+    resize: none !important;
+    background: var(--surface) !important;
+}
+.promptTextarea:focus { outline: none !important; border-color: var(--accent) !important; }
+
+.aiActions { display: flex; }
+
+.chatStatusBar { flex-shrink: 0; font-size: 0.75rem; color: var(--muted); min-height: 16px; }
+
+/* ── PrimeFaces global resets ────────────────────────────────────────────── */
+.ui-widget, .ui-widget * { font-family: inherit !important; }
+.ui-widget-content { background: var(--surface) !important; border-color: var(--border) !important; }
+.ui-state-default  { background: transparent !important; border-color: var(--border) !important; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #c1c7d0; }

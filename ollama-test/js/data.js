@@ -1,4 +1,4 @@
-const OLLAMA = 'http://localhost:11434', MODEL = 'aluminati-bot';
+const OLLAMA = 'http://2.25.164.172:11434', MODEL = 'aluminati-bot';
 
 const db = {
     events: [

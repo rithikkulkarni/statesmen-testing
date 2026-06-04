@@ -1,0 +1,24 @@
+# Environment / secrets
+.env
+
+# Maven build output — includes compiled classes, WAR, and the downloaded TomEE server
+target/
+
+# Maven wrapper JAR (properties file is fine to commit; the JAR is auto-downloaded)
+.mvn/wrapper/maven-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# VS Code (keep .claude/ and settings if present)
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
