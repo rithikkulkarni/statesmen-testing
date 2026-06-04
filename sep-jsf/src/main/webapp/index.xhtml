@@ -48,11 +48,37 @@
                     Drag headers to reorder · Drag borders to resize · Shift+click for multi-sort · Type in header inputs to filter
                 </p>
                 <h:form id="mainForm">
-                    <p:commandButton value="&#8617; Restore Dataset View"
-                                     rendered="#{appBean.analysisViewActive}"
-                                     action="#{appBean.restoreDatasetView}"
-                                     update="mainForm jsonForm" ajax="true"
-                                     styleClass="ghost restoreBtn"/>
+                    <div class="tableActionBar">
+                        <p:commandButton value="&#8617; Restore Dataset View"
+                                         rendered="#{appBean.analysisViewActive}"
+                                         action="#{appBean.restoreDatasetView}"
+                                         update="mainForm jsonForm" ajax="true"
+                                         styleClass="ghost restoreBtn"/>
+                        <div class="exportBar">
+                            <span class="exportLabel">Export</span>
+                            <p:commandButton value="CSV" ajax="false"
+                                             styleClass="ghost exportBtn"
+                                             title="Download table data as CSV">
+                                <p:dataExporter type="csv"
+                                                target="mainTable"
+                                                fileName="#{appBean.selectedDataset}_data"
+                                                charset="UTF-8"/>
+                            </p:commandButton>
+                            <p:commandButton value="XLSX" ajax="false"
+                                             styleClass="ghost exportBtn"
+                                             title="Download table data as Excel workbook">
+                                <p:dataExporter type="xlsx"
+                                                target="mainTable"
+                                                fileName="#{appBean.selectedDataset}_data"/>
+                            </p:commandButton>
+                            <p:commandButton value="PNG"
+                                             type="button"
+                                             onclick="downloadChart()"
+                                             styleClass="ghost exportBtn"
+                                             title="Save chart as PNG image"
+                                             rendered="#{appBean.currentChartJson != null}"/>
+                        </div>
+                    </div>
 
                     <p:dataTable id="mainTable"
                                  var="row"
@@ -173,14 +199,19 @@
                                              update=":chartTitleForm"
                                              ajax="true"/>
                         </h:form>
-                        <h:form id="chartCloseForm">
-                            <p:commandButton value="&#215; Dismiss"
-                                             action="#{appBean.clearChart}"
-                                             update=":chartPanel :mainForm"
-                                             ajax="true"
-                                             styleClass="ghost chartDismissBtn"
-                                             oncomplete="renderSepChart()"/>
-                        </h:form>
+                        <div class="chartActions">
+                            <button type="button" class="chartDownloadBtn" onclick="downloadChart()" title="Save chart as PNG">
+                                &#8595; Save Image
+                            </button>
+                            <h:form id="chartCloseForm">
+                                <p:commandButton value="&#215; Dismiss"
+                                                 action="#{appBean.clearChart}"
+                                                 update=":chartPanel :mainForm"
+                                                 ajax="true"
+                                                 styleClass="ghost chartDismissBtn"
+                                                 oncomplete="renderSepChart()"/>
+                            </h:form>
+                        </div>
                     </div>
                     <div class="chartCanvasWrap">
                         <canvas id="mainChartCanvas"/>
@@ -413,6 +444,32 @@
         } catch(e) {
             console.error('Chart.js constructor error:', e);
         }
+    }
+
+    function downloadChart() {
+        var canvas = document.getElementById('mainChartCanvas');
+        if (!canvas) return;
+
+        // Chart.js renders on a transparent canvas — composite onto white so the PNG looks correct
+        var offscreen = document.createElement('canvas');
+        offscreen.width  = canvas.width;
+        offscreen.height = canvas.height;
+        var ctx = offscreen.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+        ctx.drawImage(canvas, 0, 0);
+
+        // Use the chart title as the filename, falling back to "chart"
+        var titleEl  = document.getElementById('chartTitleDisplay');
+        var rawTitle = titleEl ? titleEl.textContent.trim() : 'chart';
+        var filename = rawTitle.replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '_') || 'chart';
+
+        var link = document.createElement('a');
+        link.download = filename + '.png';
+        link.href     = offscreen.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
     function startEditChartTitle() {

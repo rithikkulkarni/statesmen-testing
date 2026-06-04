@@ -1,26 +1,40 @@
 package com.statesmen.sep.bean;
 
-import com.google.gson.*;
+import java.io.Serializable;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.primefaces.PrimeFaces;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 import com.statesmen.sep.data.AnalysisService;
 import com.statesmen.sep.data.ChartFactory;
 import com.statesmen.sep.data.DatasetService;
-import com.statesmen.sep.model.ChatMessage;
 import com.statesmen.sep.model.ChartResult;
+import com.statesmen.sep.model.ChatMessage;
 import com.statesmen.sep.model.ColumnDef;
 import com.statesmen.sep.model.Conversation;
 import com.statesmen.sep.model.DatasetInfo;
-import jakarta.faces.model.SelectItem;
-import org.primefaces.PrimeFaces;
+
 import jakarta.enterprise.context.SessionScoped;
+import jakarta.faces.model.SelectItem;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-
-import java.io.Serializable;
-import java.net.URI;
-import java.net.http.*;
-import java.time.Duration;
-import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Three-mode AI analyst:
@@ -38,60 +52,110 @@ public class AiBean implements Serializable {
 
     // ── Unified system prompt ─────────────────────────────────────────────────
     private static final String UNIFIED_SYS = String.join("\n",
-        "You are an AI analyst embedded in a data platform. Return only valid JSON.",
+        "You are an experienced business analyst and reporting specialist embedded in a data platform.",
+        "You support internal business stakeholders — not a chatbot. Return only valid JSON.",
         "",
-        "Activate one or more MODES based on the user's request:",
-        "  \"visual\"  — run a SQL query and show results as a chart or visualization",
-        "  \"answer\"  — give a data-grounded natural-language answer",
-        "  \"grid\"    — change the data grid config (sort, filter, group, column visibility)",
+        "ANALYST PERSONA:",
+        "- Professional, calm, and service-oriented. Communicate like a trusted colleague.",
+        "- Never use: 'Great question!', 'Absolutely!', 'Certainly!', 'Happy to help!',",
+        "  'I'd love to help', 'Thanks for asking!', or any excessive enthusiasm.",
+        "- Use language such as: 'Based on the available data...', 'Here's what I'm seeing.',",
+        "  'The data suggests...', 'One clarification before I proceed...', 'I can help with that.'",
+        "- Match response depth to request complexity. Concise for simple questions.",
+        "",
+        "MODES — activate one or more:",
+        "  \"visual\"  — run SQL and render results as a chart.",
+        "  \"answer\"  — provide data-grounded natural-language analysis.",
+        "  \"grid\"    — change the data grid (sort, column order/visibility).",
+        "- Combine freely: 'chart failed payments by carrier' → [\"visual\",\"answer\"]",
+        "- Add \"visual\" when SQL results would make a meaningful chart.",
+        "- Add \"answer\" whenever a natural-language explanation is provided.",
         "",
         "Response JSON shape:",
         "{",
-        "  \"modes\": [\"visual\",\"answer\"],",
+        "  \"modes\": [\"answer\"],",
+        "  \"confidence\": \"high\",",
+        "  \"clarificationQuestions\": [],",
         "  \"needsQuery\": true,",
         "  \"scope\": \"base_dataset\",",
         "  \"chartType\": null,",
         "  \"chartTitle\": null,",
         "  \"steps\": [...],",
         "  \"directAnswer\": null,",
-        "  \"insights\": [],",
-        "  \"recommendedActions\": [],",
         "  \"gridChange\": null",
         "}",
         "",
+        "CLARIFICATION RULES — clarification is the default. Proceeding without asking is the exception.",
+        "- When in doubt, ask. A focused question is always better than a wrong assumption.",
+        "- Proceed WITHOUT clarifying ONLY when the request explicitly states ALL of:",
+        "  (1) the exact metric or measure  (2) the exact grouping or dimension",
+        "  (3) any required filters or scope  (4) nothing is left to interpretation.",
+        "  If ANY of these are missing or ambiguous, ask before proceeding.",
+        "- Ask 1-2 focused questions. Do not ask more than 3 at once.",
+        "- Do NOT run a query when clarificationQuestions is non-empty.",
+        "- Set a brief professional framing in directAnswer when clarifying, e.g.:",
+        "  'One clarification before I proceed:' or 'A couple of things to confirm:'",
+        "",
+        "Triggers that ALWAYS require clarification (any natural-language qualifier):",
+        "  · Undefined comparatives: 'best', 'worst', 'top', 'lowest', 'most', 'least',",
+        "    'performing well', 'underperforming', 'high', 'low', 'doing well'",
+        "  · Missing metric: 'how are sales?', 'show me the data', 'give me a report'",
+        "  · Missing time period when trend or period is implied",
+        "  · Missing grouping: 'what's the breakdown?' without specifying breakdown of what",
+        "  · Subjective scope: 'a few', 'some', 'the main ones', 'the important ones'",
+        "",
+        "Proceed immediately ONLY for requests like these (explicit, complete, unambiguous):",
+        "  'Total payment amount grouped by carrier' — metric and grouping both explicit.",
+        "  'Count of records by status, sorted descending' — fully specified.",
+        "  'Sort the grid by amount descending' — clear grid action, no interpretation needed.",
+        "  'Pie chart of payment count by status' — chart type, metric, and grouping all stated.",
+        "  'Bar chart of revenue by marketing channel' — complete specification.",
+        "",
+        "PREFERENCE MEMORY:",
+        "- Review the prior conversation for established preferences: chart types, date ranges,",
+        "  groupings, detail level, metric definitions. Apply them automatically without re-asking.",
+        "- If you apply a remembered preference, mention it briefly (e.g., 'Using your preferred",
+        "  monthly granularity.').",
+        "",
+        "REPORTING STYLE — critical:",
+        "- Write analysis naturally, as a human analyst would — NOT as a template.",
+        "- Do NOT include section headers titled 'Key Insights', 'Recommended Actions', or 'Summary'.",
+        "- Weave findings naturally into the narrative.",
+        "- Focus on: operational impact, financial impact, trends, anomalies, comparisons,",
+        "  risk indicators, performance drivers.",
+        "- Bad: 'Key Insights: The Aetna carrier had the highest failed amount.'",
+        "- Good: 'Failed exposure is most concentrated at Aetna ($42,300), roughly double the next",
+        "  carrier. That concentration warrants attention if recovery efforts are carrier-specific.'",
+        "",
+        "RECOMMENDATIONS — strict rules:",
+        "- Do NOT auto-generate recommendations.",
+        "- Only recommend when: (a) the data directly supports it AND (b) the user requests it,",
+        "  OR there is clear evidence warranting action.",
+        "- Bad: 'Investigate strategies that contributed to Kids segment sales.'",
+        "  (No evidence about strategies is present in the data.)",
+        "- Good: 'The Adult segment underperformed relative to others. Additional analysis of",
+        "  transaction volume or product mix may help identify the source of the gap.'",
+        "",
         "CHART TYPE RULES:",
-        "- \"chartType\": set ONLY when the user explicitly names a chart type in their request.",
+        "- \"chartType\": set ONLY when the user explicitly names a chart type.",
         "  Valid values: \"bar\", \"line\", \"pie\", \"doughnut\"",
-        "  Examples: \"pie chart\" → \"pie\", \"bar graph\" → \"bar\", \"line chart\" → \"line\", \"donut chart\" → \"doughnut\"",
-        "- If the user does NOT mention a specific chart type, leave chartType as null (auto-select).",
-        "- ALWAYS honour the user's stated preference — never override it.",
+        "- If no type is specified, leave null (auto-select).",
+        "- ALWAYS honour the user's stated preference.",
         "",
         "- \"chartTitle\": required whenever \"visual\" is in modes.",
-        "  Write a concise, descriptive title that says exactly what the chart shows.",
-        "  Include: the metric(s) being measured, any active filters, the grouping/dimension, and time granularity if relevant.",
-        "  Examples: \"Failed Payments by Carrier\", \"Total Revenue by Marketing Channel\",",
-        "  \"Caramel Chocolate Sales by Revenue — Month over Month\", \"Pending vs Failed Amount by Status\"",
-        "  Do NOT use vague titles like \"Over Time\", \"By Group\", or \"Chart\".",
-        "",
-        "MODE RULES:",
-        "- \"visual\": user says chart/graph/visualize/plot, or data naturally fits a visual",
-        "- \"answer\": factual questions — how many, which, what, compare, total, breakdown",
-        "- \"grid\": user wants to change the table view — filter/sort/group/show/hide columns",
-        "- Combine freely.  \"chart failed payments by carrier\" → [\"visual\",\"answer\"]",
-        "- \"show only failed in the table and chart it\" → [\"visual\",\"answer\",\"grid\"]",
-        "- Add \"visual\" automatically when SQL result would make a meaningful chart",
-        "- Add \"answer\" whenever you provide a natural-language explanation",
+        "  Write a concise, descriptive title reflecting exactly what the chart shows.",
+        "  Include: metric, filters, grouping, time granularity if relevant.",
+        "  Bad: 'Over Time', 'By Group', 'Chart'. Good: 'Failed Payments by Carrier — Total Exposure'.",
         "",
         "gridChange — omit any key you are not changing:",
         "{ \"dataset\": \"payments\",",
         "  \"columns\": [\"status\", \"carrier\", \"amount\", \"date\"],",
         "  \"sort\": [{\"field\": \"amount\", \"direction\": \"desc\"}, {\"field\": \"status\", \"direction\": \"asc\"}] }",
         "Rules for gridChange:",
-        "- \"sort\": controls how rows are ORDERED. Array in priority order — first entry = primary sort.",
-        "  direction must be \"asc\" or \"desc\". An empty array [] clears all sorting.",
-        "- \"columns\": controls which columns are VISIBLE and in what left-to-right display order.",
-        "  List ALL field names you want shown, in the order you want them. Absent fields are hidden.",
-        "  Only include \"columns\" when the user explicitly asks to show, hide, or rearrange columns.",
+        "- \"sort\": row ordering. Array in priority order — first entry = primary sort.",
+        "  direction: \"asc\" or \"desc\". Empty array [] clears sorting.",
+        "- \"columns\": visible fields in display order. Absent fields are hidden.",
+        "  Only include when user explicitly asks to show, hide, or rearrange columns.",
         "- \"dataset\": switch dataset (payments, adjustments, exceptions, candy).",
         "- Omit a key entirely if you are not changing it.",
         "",
@@ -99,7 +163,7 @@ public class AiBean implements Serializable {
         "  'Sort by X ascending'        → only set \"sort\", NEVER touch \"columns\"",
         "  'Show only columns X and Y'  → only set \"columns\", NEVER touch \"sort\"",
         "  'Move column X to the front' → only set \"columns\", NEVER touch \"sort\"",
-        "  Generating \"columns\" when the user only asks about sort direction DELETES all other columns.",
+        "  Generating \"columns\" when only sorting is requested HIDES all other columns.",
         "",
         "SCOPE: always \"base_dataset\" unless user explicitly says \"current view\" or \"visible rows\".",
         "",
@@ -134,7 +198,7 @@ public class AiBean implements Serializable {
 
     private String  promptInput   = "";
     private boolean busy          = false;
-    private String  statusMessage = "Ask for analysis, a chart, or a table change.";
+    private String  statusMessage = "Ready.";
 
     private static final String GEMINI_API_KEY = System.getenv("GEMINI_API_KEY");
     private static final String GEMINI_MODEL   = System.getenv().getOrDefault("GEMINI_MODEL",    "gemini-2.5-flash-lite");
@@ -145,12 +209,12 @@ public class AiBean implements Serializable {
     public AiBean() { addWelcome(); }
 
     private void addWelcome() {
-        messages.add(new ChatMessage("assistant", "Ask Analyst",
-            "I can answer questions, create charts, or change the table view — sometimes all three at once.",
-            "<p>I can answer questions, create charts, or change the table view — sometimes all three at once.</p>"
-            + "<ul><li>\"Chart failed payments by carrier\"</li>"
-            + "<li>\"What's the total pending amount?\"</li>"
-            + "<li>\"Show only Paid records sorted by amount\"</li></ul>"));
+        messages.add(new ChatMessage("assistant", "Analyst",
+            "Ready to assist with data analysis and reporting. You can ask analytical questions, request visualizations, or adjust the table view.",
+            "<p>Ready to assist with data analysis and reporting. You can ask analytical questions, request visualizations, or adjust the table view.</p>"
+            + "<ul><li>\"What is the total failed payment exposure by carrier?\"</li>"
+            + "<li>\"Show monthly payment volume trends\"</li>"
+            + "<li>\"Sort the table by amount, highest first\"</li></ul>"));
     }
 
     public void newChat() {
@@ -315,6 +379,27 @@ public class AiBean implements Serializable {
         boolean needsQuery = decision.has("needsQuery") && decision.get("needsQuery").getAsBoolean()
                           && (hasVisual || hasAnswer);
 
+        // ── Clarification mode — ask questions before proceeding ──────────────
+        List<String> clarificationQuestions = jsonList(decision, "clarificationQuestions");
+        if (!clarificationQuestions.isEmpty()) {
+            String intro = decision.has("directAnswer") && !decision.get("directAnswer").isJsonNull()
+                ? decision.get("directAnswer").getAsString().trim() : "";
+            StringBuilder html = new StringBuilder();
+            if (!intro.isBlank()) html.append("<p>").append(esc(intro)).append("</p>");
+            if (clarificationQuestions.size() == 1) {
+                html.append("<p>").append(esc(clarificationQuestions.get(0))).append("</p>");
+            } else {
+                html.append("<ul>");
+                clarificationQuestions.forEach(q -> html.append("<li>").append(esc(q)).append("</li>"));
+                html.append("</ul>");
+            }
+            String raw = (intro.isBlank() ? "" : intro + " ") + String.join(" ", clarificationQuestions);
+            messages.add(new ChatMessage("assistant", "Analyst", raw.trim(), html.toString()));
+            history.add(Map.of("role", "assistant", "content", raw.trim()));
+            statusMessage = "Done.";
+            return;
+        }
+
         // ── Grid mode ─────────────────────────────────────────────────────────
         boolean gridApplied = false;
         if (hasGrid && decision.has("gridChange") && !decision.get("gridChange").isJsonNull()) {
@@ -326,12 +411,10 @@ public class AiBean implements Serializable {
 
         // ── Visual / Answer modes — no SQL needed ─────────────────────────────
         if ((hasVisual || hasAnswer) && !needsQuery) {
-            String direct   = decision.has("directAnswer") && !decision.get("directAnswer").isJsonNull()
+            String direct = decision.has("directAnswer") && !decision.get("directAnswer").isJsonNull()
                 ? decision.get("directAnswer").getAsString() : "";
-            if (direct.isBlank()) direct = hasGrid ? "Grid updated." : "Analysis complete.";
-            ChatMessage msg = buildTextMessage(direct, jsonList(decision,"insights"),
-                jsonList(decision,"recommendedActions"), gridApplied);
-            messages.add(msg);
+            if (direct.isBlank()) direct = gridApplied ? "Grid updated." : "Analysis complete.";
+            messages.add(buildTextMessage(direct, gridApplied));
             history.add(Map.of("role", "assistant", "content", direct));
             statusMessage = "Done.";
             return;
@@ -347,12 +430,10 @@ public class AiBean implements Serializable {
                 analysisService.pruneInvalidSteps(rawSteps, ds.getColumns()), ds.getColumns());
 
             if (steps.isEmpty()) {
-                // Fallback: answer without SQL
                 String direct = decision.has("directAnswer") && !decision.get("directAnswer").isJsonNull()
-                    ? decision.get("directAnswer").getAsString() : "I could not build a query for that. Try rephrasing.";
-                ChatMessage msg = buildTextMessage(direct, jsonList(decision,"insights"),
-                    jsonList(decision,"recommendedActions"), gridApplied);
-                messages.add(msg);
+                    ? decision.get("directAnswer").getAsString()
+                    : "The query could not be constructed from the available data. Try rephrasing the request.";
+                messages.add(buildTextMessage(direct, gridApplied));
                 history.add(Map.of("role", "assistant", "content", direct));
                 statusMessage = "Done.";
                 return;
@@ -397,18 +478,14 @@ public class AiBean implements Serializable {
                 ? chartFactory.create(finalColumns, finalRows, requestedChartType) : null;
 
             // ── Stage 2: generate answer from SQL results ─────────────────────
-            String answer   = "";
-            List<String> insights = new ArrayList<>();
-            List<String> actions  = new ArrayList<>();
+            String answer;
 
             if (hasAnswer) {
                 statusMessage = "Summarizing findings…";
                 Map<String, Object> facts = analysisService.computeSummaryFacts(finalColumns, finalRows, steps);
                 String answerPrompt = buildFinalAnswerPrompt(ds, prompt, finalColumns, finalRows, recent, scope, facts, steps);
                 JsonObject answerJson = callModelJson(answerPrompt, null);
-                answer   = answerJson.has("answer") ? answerJson.get("answer").getAsString() : "Analysis complete.";
-                insights = jsonList(answerJson, "insights");
-                actions  = jsonList(answerJson, "recommendedActions");
+                answer = answerJson.has("answer") ? answerJson.get("answer").getAsString() : "Analysis complete.";
             } else {
                 answer = "Here are the results" + (chart != null ? " as a chart" : "") + ".";
             }
@@ -433,7 +510,7 @@ public class AiBean implements Serializable {
                 appBean.storeQuerySnapshot(snapshotId, finalColumns, finalRows);
             }
 
-            ChatMessage msg = buildAnalysisMessage(answer, insights, actions,
+            ChatMessage msg = buildAnalysisMessage(answer,
                 !finalRows.isEmpty() ? meta : null,
                 !finalColumns.isEmpty() ? finalColumns : null,
                 gridApplied);
@@ -447,8 +524,8 @@ public class AiBean implements Serializable {
 
         // ── Grid-only mode (no visual/answer) ─────────────────────────────────
         if (hasGrid) {
-            String msg = gridApplied ? "Grid configuration updated." : "Could not parse the grid change.";
-            messages.add(new ChatMessage("assistant", "Ask Analyst", msg,
+            String msg = gridApplied ? "Grid updated." : "Could not apply the grid change.";
+            messages.add(new ChatMessage("assistant", "Analyst", msg,
                 "<p>" + esc(msg) + "</p>"
                 + (gridApplied ? "<p class=\"config-applied\">&#10003; Table updated — see the grid.</p>" : "")));
             history.add(Map.of("role", "assistant", "content", msg));
@@ -507,62 +584,76 @@ public class AiBean implements Serializable {
 
         if (isPayment) {
             sb.append("""
+                Q: "Show me the payments data"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["What aspect would be most useful — totals by carrier, a status breakdown, failure rates, or something else?","Is there a particular date range or time period you'd like to focus on?"],"needsQuery":false,"directAnswer":"A couple of things to confirm before I pull the data:","gridChange":null}
+
+                Q: "What is performing well?"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["Which metric defines performance here — approval rate, total payment volume, or amount collected?","Are you comparing across carriers, payment types, or time periods?"],"needsQuery":false,"directAnswer":"One clarification before I proceed:","gridChange":null}
+
                 Q: "Chart failed payments by carrier"
-                A: {"modes":["visual","answer"],"needsQuery":true,"chartType":null,"chartTitle":"Failed Payments by Carrier — Total Exposure","scope":"base_dataset","steps":[{"label":"Filtering to failed","op":"filter","conditions":[{"column":"status","op":"eq","value":"Failed"}]},{"label":"Ranking carriers by exposure","op":"groupBy","columns":["carrier"],"aggregations":[{"column":"amount","fn":"SUM","alias":"failedExposure"},{"column":"*","fn":"COUNT","alias":"count"}],"sort":{"column":"failedExposure","direction":"DESC"}}],"gridChange":null}
-
-                Q: "Sort the grid by amount, highest first"
-                A: {"modes":["grid"],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"amount","direction":"desc"}]}}
-
-                Q: "Sort by carrier then by amount descending"
-                A: {"modes":["grid"],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"carrier","direction":"asc"},{"field":"amount","direction":"desc"}]}}
-
-                Q: "Move status to be the first column"
-                A: {"modes":["grid"],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"columns":["status","carrier","policyNumber","claimNumber","amount","date"]}}
-
-                Q: "Hide the date and policy number columns"
-                A: {"modes":["grid"],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"columns":["status","carrier","claimNumber","amount"]}}
-
-                Q: "Clear all sorting"
-                A: {"modes":["grid"],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[]}}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Failed Payments by Carrier — Total Exposure","scope":"base_dataset","steps":[{"label":"Filtering to failed","op":"filter","conditions":[{"column":"status","op":"eq","value":"Failed"}]},{"label":"Grouping by carrier","op":"groupBy","columns":["carrier"],"aggregations":[{"column":"amount","fn":"SUM","alias":"failedExposure"},{"column":"*","fn":"COUNT","alias":"count"}],"sort":{"column":"failedExposure","direction":"DESC"}}],"gridChange":null}
 
                 Q: "How many payments are there by status?"
-                A: {"modes":["visual","answer"],"needsQuery":true,"chartType":null,"chartTitle":"Payment Count by Status","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
-
-                Q: "What should we prioritize?"
-                A: {"modes":["answer"],"needsQuery":false,"chartType":null,"chartTitle":null,"directAnswer":"Prioritize high-value failed and pending payments first, grouped by carrier to assign ownership.","insights":["Failed payments represent immediate recovery risk."],"recommendedActions":["Filter to Failed and Pending, sort by amount descending."],"gridChange":null}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Payment Count and Total Amount by Status","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
 
                 Q: "Give me a pie chart of payments by status"
-                A: {"modes":["visual","answer"],"needsQuery":true,"chartType":"pie","chartTitle":"Payment Count by Status","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"pie","chartTitle":"Payment Distribution by Status","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
 
                 Q: "Bar chart of total amount by carrier"
-                A: {"modes":["visual","answer"],"needsQuery":true,"chartType":"bar","chartTitle":"Total Payment Amount by Carrier","scope":"base_dataset","steps":[{"label":"Summing by carrier","op":"groupBy","columns":["carrier"],"aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"totalAmount","direction":"DESC"}}],"gridChange":null}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"bar","chartTitle":"Total Payment Amount by Carrier","scope":"base_dataset","steps":[{"label":"Summing by carrier","op":"groupBy","columns":["carrier"],"aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"totalAmount","direction":"DESC"}}],"gridChange":null}
 
                 Q: "Show a line chart of payments over time"
-                A: {"modes":["visual","answer"],"needsQuery":true,"chartType":"line","chartTitle":"Total Payment Amount — Month over Month","scope":"base_dataset","steps":[{"label":"Payments over time","op":"timeSeries","dateColumn":"date","granularity":"month","aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}]}],"gridChange":null}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"line","chartTitle":"Total Payment Amount — Month over Month","scope":"base_dataset","steps":[{"label":"Payments over time","op":"timeSeries","dateColumn":"date","granularity":"month","aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}]}],"gridChange":null}
+
+                Q: "Sort the grid by amount, highest first"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"amount","direction":"desc"}]}}
+
+                Q: "Sort by carrier then by amount descending"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"carrier","direction":"asc"},{"field":"amount","direction":"desc"}]}}
+
+                Q: "Clear all sorting"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[]}}
                 """);
         }
 
         if (isCandy) {
             sb.append("""
-                Q: "Chart revenue by marketing channel"
-                A: {"modes":["visual","answer"],"needsQuery":true,"chartType":null,"chartTitle":"Total Revenue by Marketing Channel","scope":"base_dataset","steps":[{"label":"Revenue by channel","op":"groupBy","columns":["marketingChannel"],"aggregations":[{"column":"total","fn":"SUM","alias":"totalRevenue"},{"column":"*","fn":"COUNT","alias":"transactions"}],"sort":{"column":"totalRevenue","direction":"DESC"}}],"gridChange":null}
+                Q: "Give me a sales report"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["Which metric is most relevant — total revenue, units sold, or transaction count?","Should this cover all products and channels, or a specific segment or category?"],"needsQuery":false,"directAnswer":"A couple of things to confirm before I pull the data:","gridChange":null}
 
-                Q: "Which products sell the most? Also filter the grid to show Chocolate only"
-                A: {"modes":["visual","answer","grid"],"needsQuery":true,"chartType":null,"chartTitle":"Top Products by Units Sold (Chocolate)","scope":"base_dataset","steps":[{"label":"Ranking products by quantity","op":"groupBy","columns":["product","category"],"aggregations":[{"column":"quantity","fn":"SUM","alias":"totalQty"},{"column":"total","fn":"SUM","alias":"revenue"}],"sort":{"column":"totalQty","direction":"DESC"},"limit":15}],"gridChange":{"filters":{"category":{"operator":"equals","value":"Chocolate"}}}}
+                Q: "How are sales looking?"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["Which metric would be most useful — revenue, units sold, or number of transactions?","Is there a particular time period, product category, or channel you'd like to focus on?"],"needsQuery":false,"directAnswer":"One clarification before I proceed:","gridChange":null}
+
+                Q: "What's our best performing product?"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["How are you defining best performing — by total revenue, units sold, or customer satisfaction score?"],"needsQuery":false,"directAnswer":"One clarification before I proceed:","gridChange":null}
+
+                Q: "Which customer segment is most valuable?"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["How are you defining value here — total revenue generated, average transaction size, or volume of transactions?"],"needsQuery":false,"directAnswer":"One clarification before I proceed:","gridChange":null}
+
+                Q: "Is chocolate doing well?"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["What metric should I use to assess performance — total revenue, units sold, or margin?","Are you comparing chocolate against other categories, or against a prior period?"],"needsQuery":false,"directAnswer":"A couple of things to confirm:","gridChange":null}
+
+                Q: "What should we focus on?"
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["Are you looking to identify underperforming areas, growth opportunities, or something else?","Which dimension matters most — product category, store location, customer segment, or marketing channel?"],"needsQuery":false,"directAnswer":"Before I proceed, a couple of things to confirm:","gridChange":null}
+
+                Q: "Chart revenue by marketing channel"
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Total Revenue by Marketing Channel","scope":"base_dataset","steps":[{"label":"Revenue by channel","op":"groupBy","columns":["marketingChannel"],"aggregations":[{"column":"total","fn":"SUM","alias":"totalRevenue"},{"column":"*","fn":"COUNT","alias":"transactions"}],"sort":{"column":"totalRevenue","direction":"DESC"}}],"gridChange":null}
+
+                Q: "Total revenue by product category"
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Total Revenue by Product Category","scope":"base_dataset","steps":[{"label":"Revenue by category","op":"groupBy","columns":["category"],"aggregations":[{"column":"total","fn":"SUM","alias":"totalRevenue"},{"column":"*","fn":"COUNT","alias":"transactions"}],"sort":{"column":"totalRevenue","direction":"DESC"}}],"gridChange":null}
                 """);
         }
 
         return sb.toString();
     }
 
-    /** Port of buildFinalAnswerPrompt — answer grounded in real SQL results. */
     private String buildFinalAnswerPrompt(DatasetInfo ds, String prompt,
                                            List<String> columns, List<Map<String, Object>> rows,
                                            List<Map<String, String>> chatHistory, String scope,
                                            Map<String, Object> facts, List<JsonObject> steps) {
         String histBlock = chatHistory.isEmpty() ? "" :
             "Prior conversation:\n" + chatHistory.stream()
-                .map(m -> ("user".equals(m.get("role")) ? "User" : "Assistant") + ": " + m.get("content"))
+                .map(m -> ("user".equals(m.get("role")) ? "User" : "Analyst") + ": " + m.get("content"))
                 .collect(Collectors.joining("\n")) + "\n\n";
         String scopeLabel = switch (scope) {
             case "current_view" -> "the current visible grid view";
@@ -570,7 +661,7 @@ public class AiBean implements Serializable {
         };
 
         return """
-            You are a data analyst. Write a concise answer grounded strictly in the query results below.
+            You are an experienced business analyst writing a briefing for an internal stakeholder.
 
             %sUser question: %s
             Dataset: %s, scope: %s
@@ -585,10 +676,18 @@ public class AiBean implements Serializable {
             Result rows (up to 50):
             %s
 
-            Return JSON only:
-            {"answer":"2-4 sentence answer","insights":["finding 1"],"recommendedActions":["next step"]}
+            WRITING REQUIREMENTS:
+            - Write naturally, as a human analyst would. Do NOT use template section headers.
+            - Do NOT include 'Key Insights', 'Recommended Actions', or 'Summary' sections.
+            - Weave findings directly into the narrative. Lead with what is most significant.
+            - Focus on operational and financial relevance: trends, anomalies, comparisons, risk.
+            - Ground every figure in the result rows. Do not invent or estimate numbers.
+            - Be concise. 2-5 sentences is usually sufficient; longer only if the data warrants it.
+            - Professional tone only. No enthusiasm, no AI-assistant phrasing.
+            - Only include a recommendation if the data directly supports it and it is proportionate
+              to the finding. Connect it explicitly to what the data shows.
 
-            Rules: ground every number in result rows. 1-3 insights max.
+            Return JSON only: {"answer":"..."}
             """.formatted(
                 histBlock, prompt, ds.getLabel(), scopeLabel,
                 describeSteps(steps),
@@ -793,17 +892,15 @@ public class AiBean implements Serializable {
 
     // ── Message builders ──────────────────────────────────────────────────────
 
-    private ChatMessage buildAnalysisMessage(String answer, List<String> insights, List<String> actions,
+    private ChatMessage buildAnalysisMessage(String answer,
                                               Map<String, Object> queryMeta, List<String> queryColumns,
                                               boolean gridApplied) {
         StringBuilder html = new StringBuilder("<p class=\"analysis-answer\">").append(esc(answer)).append("</p>");
-        htmlList(html, insights, "Key Insights");
-        htmlList(html, actions,  "Recommended Actions");
         if (queryMeta != null) {
             html.append("<div class=\"answerMeta\">");
             if (queryMeta.containsKey("resultRowCount"))
                 html.append("<span class=\"answerMetaChip\">").append(queryMeta.get("resultRowCount")).append(" result rows</span>");
-            String scope = String.valueOf(queryMeta.getOrDefault("scope",""));
+            String scope = String.valueOf(queryMeta.getOrDefault("scope", ""));
             if ("current_view".equals(scope)) html.append("<span class=\"answerMetaChip\">Current view</span>");
             html.append("</div>");
         }
@@ -811,23 +908,13 @@ public class AiBean implements Serializable {
             html.append("<p class=\"config-applied\">&#9998; Grid shows query results — click Restore View to go back.</p>");
         if (gridApplied)
             html.append("<p class=\"config-applied\">&#10003; Grid configuration also updated.</p>");
-        return new ChatMessage("assistant", "Ask Analyst", answer, html.toString());
+        return new ChatMessage("assistant", "Analyst", answer, html.toString());
     }
 
-    private ChatMessage buildTextMessage(String answer, List<String> insights, List<String> actions,
-                                          boolean gridApplied) {
+    private ChatMessage buildTextMessage(String answer, boolean gridApplied) {
         StringBuilder html = new StringBuilder("<p>").append(esc(answer)).append("</p>");
-        htmlList(html, insights, "Insights");
-        htmlList(html, actions,  "Recommended Actions");
         if (gridApplied) html.append("<p class=\"config-applied\">&#10003; Grid also updated.</p>");
-        return new ChatMessage("assistant", "Ask Analyst", answer, html.toString());
-    }
-
-    private void htmlList(StringBuilder sb, List<String> items, String heading) {
-        if (items == null || items.isEmpty()) return;
-        sb.append("<div class=\"analysis-section\"><h4>").append(heading).append("</h4><ul>");
-        items.forEach(i -> sb.append("<li>").append(esc(i)).append("</li>"));
-        sb.append("</ul></div>");
+        return new ChatMessage("assistant", "Analyst", answer, html.toString());
     }
 
     private List<String> jsonList(JsonObject obj, String key) {
@@ -848,7 +935,7 @@ public class AiBean implements Serializable {
         int start = t.indexOf('{'); int end = t.lastIndexOf('}');
         if (start < 0 || end <= start) return new JsonObject();
         try { return JsonParser.parseString(t.substring(start, end + 1)).getAsJsonObject(); }
-        catch (Exception e) { return new JsonObject(); }
+        catch (JsonSyntaxException e) { return new JsonObject(); }
     }
 
     private String esc(String t) {

@@ -192,6 +192,37 @@ body { background: var(--bg); color: var(--text); font-size: 14px; }
 .ui-chkbox-box.ui-state-active { background: var(--accent); border-color: var(--accent); }
 .ui-chkbox-icon { color: #fff; font-size: 10px; }
 
+/* ── Table action bar (export + restore) ─────────────────────────────────── */
+.tableActionBar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    min-height: 28px;
+}
+.exportBar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+.exportLabel {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 4px;
+}
+.exportBtn.ui-button {
+    font-size: 0.78rem !important;
+    padding: 3px 10px !important;
+    color: var(--muted) !important;
+    border-color: var(--border) !important;
+    min-width: 48px;
+}
+.exportBtn.ui-button:hover { background: rgba(0,0,0,0.05) !important; }
+
 /* ── Grid hint ───────────────────────────────────────────────────────────── */
 .gridHint { font-size: 0.78rem; color: var(--muted); margin-bottom: 10px; }
 
@@ -503,6 +534,28 @@ body { background: var(--bg); color: var(--text); font-size: 14px; }
     box-sizing: border-box;
     outline: none;
     box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.15);
+}
+.chartActions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.chartDownloadBtn {
+    font-size: 0.78rem;
+    font-family: inherit;
+    padding: 3px 9px;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+.chartDownloadBtn:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text);
 }
 .chartDismissBtn.ui-button {
     font-size: 0.78rem !important;

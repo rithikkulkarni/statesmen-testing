@@ -1,20 +1,35 @@
 package com.statesmen.sep.bean;
 
-import com.google.gson.*;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.primefaces.model.SortMeta;
+import org.primefaces.model.SortOrder;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 import com.statesmen.sep.data.DatasetService;
 import com.statesmen.sep.model.ColumnDef;
 import com.statesmen.sep.model.DatasetInfo;
+
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.SessionScoped;
 import jakarta.faces.model.SelectItem;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-import org.primefaces.model.SortMeta;
-import org.primefaces.model.SortOrder;
-
-import java.io.Serializable;
-import java.util.*;
-import java.util.stream.Collectors;
 
 @Named
 @SessionScoped
@@ -245,7 +260,7 @@ public class AppBean implements Serializable {
             applyTableConfig(parsed);
             exportConfig();
             setStatus("JSON config applied.", "success");
-        } catch (Exception e) {
+        } catch (JsonSyntaxException e) {
             setStatus("Invalid JSON: " + e.getMessage(), "error");
         }
     }
@@ -341,7 +356,7 @@ public class AppBean implements Serializable {
             if (patch.has("sort"))      current.add("sort",    patch.get("sort"));
             if (patch.has("columns"))   current.add("columns", patch.get("columns"));
             applyTableConfig(current);
-        } catch (Exception ignored) {}
+        } catch (JsonSyntaxException ignored) {}
     }
 
     // ── Export config ─────────────────────────────────────────────────────────

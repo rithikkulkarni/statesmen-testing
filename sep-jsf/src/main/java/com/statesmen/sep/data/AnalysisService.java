@@ -1,16 +1,30 @@
 package com.statesmen.sep.data;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.statesmen.sep.model.ColumnDef;
+
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-
-import java.sql.*;
-import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * H2 in-memory SQL engine — Java equivalent of the DuckDB + structured query builder
@@ -30,7 +44,7 @@ public class AnalysisService {
             // DATABASE_TO_UPPER=FALSE keeps column names case-as-stored
             conn = DriverManager.getConnection(
                 "jdbc:h2:mem:sepdb;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=FALSE", "sa", "");
-        } catch (Exception e) {
+        } catch (ClassNotFoundException | SQLException e) {
             throw new RuntimeException("Failed to initialize H2", e);
         }
     }
@@ -66,7 +80,7 @@ public class AnalysisService {
                 for (int i = 0; i < cols.size(); i++) {
                     Object val = row.get(cols.get(i));
                     if (val == null)            ps.setNull(i + 1, Types.VARCHAR);
-                    else if (val instanceof Number) ps.setDouble(i + 1, ((Number) val).doubleValue());
+                    else if (val instanceof Number number) ps.setDouble(i + 1, number.doubleValue());
                     else                         ps.setString(i + 1, val.toString());
                 }
                 ps.addBatch();
@@ -90,7 +104,7 @@ public class AnalysisService {
             for (int i = 1; i <= cols; i++) {
                 String name = meta.getColumnLabel(i);
                 Object val = rs.getObject(i);
-                if (val instanceof java.math.BigDecimal) val = ((java.math.BigDecimal) val).doubleValue();
+                if (val instanceof java.math.BigDecimal bigDecimal) val = bigDecimal.doubleValue();
                 row.put(name, val);
             }
             out.add(row);
@@ -495,7 +509,10 @@ public class AnalysisService {
             }
             rest.add(step);
         }
-        boolean hasAgg = rest.stream().anyMatch(s -> AGG_OPS.contains(s.has("op") ? s.get("op").getAsString() : ""));
+        boolean hasAgg = rest.stream().anyMatch(s -> {
+            String op = s.has("op") ? s.get("op").getAsString() : "";
+            return AGG_OPS.contains(op);
+        });
         if (preFilters.isEmpty() || !hasAgg) return steps;
         List<JsonObject> result = new ArrayList<>(preFilters);
         result.addAll(rest);
