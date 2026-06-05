@@ -105,16 +105,15 @@
                         <!-- Fixed action column — always first, shows in every view including SQL results -->
                         <p:column reorderable="false" styleClass="actionCol" style="width:44px;text-align:center;" exportable="false">
                             <f:facet name="header">&#160;</f:facet>
-                            <p:commandButton title="View record"
-                                             styleClass="ghost rowViewBtn"
-                                             value="&#8942;"
-                                             process="@none"
-                                             update=":mainForm:rowDetailDialog"
-                                             oncomplete="PF('rowDetailDlg').show()"
-                                             ajax="true">
-                                <f:setPropertyActionListener value="#{row}"
-                                                             target="#{appBean.selectedRow}"/>
-                            </p:commandButton>
+                            <!-- Row data is embedded as JSON at render time; dialog is populated entirely client-side
+                                 so there is no server round-trip and no JSF EL row-variable timing issues. -->
+                            <button type="button"
+                                    title="View record"
+                                    class="ghost rowViewBtn"
+                                    onclick="showRowDetail(this.nextElementSibling)">&#8942;</button>
+                            <span class="rowDataJson" style="display:none">
+                                <h:outputText value="#{appBean.rowToJson(row)}"/>
+                            </span>
                         </p:column>
 
                         <p:columns value="#{appBean.visibleColumns}" var="col"
@@ -137,30 +136,22 @@
                         </p:columns>
                     </p:dataTable>
 
+                    <!-- Drilldown context — pre-aggregation rows and groupBy columns for the detail dialog.
+                         Inside mainForm so they refresh whenever the AI updates the grid. -->
+                    <span id="preAggRowsJson"    style="display:none"><h:outputText value="#{appBean.preAggRowsJson}"    escape="false"/></span>
+                    <span id="groupByFieldsJson" style="display:none"><h:outputText value="#{appBean.groupByFieldsJson}" escape="false"/></span>
+
                     <!-- Record detail dialog -->
                     <p:dialog id="rowDetailDialog"
                               widgetVar="rowDetailDlg"
                               header="Record Details"
                               modal="true"
                               responsive="true"
-                              width="480"
+                              width="560"
+                              contentHeight="460"
                               styleClass="rowDetailDialog"
                               closeOnEscape="true">
-                        <h:panelGroup layout="block" styleClass="rowDetailBody"
-                                      rendered="#{appBean.selectedRow != null}">
-                            <ui:repeat value="#{appBean.selectedRowEntries}" var="entry">
-                                <div class="rowDetailRow">
-                                    <span class="rowDetailKey">#{appBean.formatFieldName(entry.key)}</span>
-                                    <span class="rowDetailVal">
-                                        <h:outputText value="#{entry.value}" rendered="#{!appBean.isSelectedRowCurrency(entry.key)}"/>
-                                        <h:outputText value="#{entry.value}" rendered="#{appBean.isSelectedRowCurrency(entry.key)}">
-                                            <f:convertNumber type="currency" currencySymbol="$" locale="en_US"
-                                                             groupingUsed="true" minFractionDigits="2" maxFractionDigits="2"/>
-                                        </h:outputText>
-                                    </span>
-                                </div>
-                            </ui:repeat>
-                        </h:panelGroup>
+                        <div id="rowDetailBody" class="rowDetailBody"></div>
                     </p:dialog>
 
                 </h:form>
@@ -444,6 +435,149 @@
         } catch(e) {
             console.error('Chart.js constructor error:', e);
         }
+    }
+
+    function showRowDetail(jsonSpan) {
+        var raw = (jsonSpan && (jsonSpan.textContent || jsonSpan.innerText) || '').trim();
+        if (!raw) return;
+        var rowData;
+        try { rowData = JSON.parse(raw); } catch(e) { console.error('Row JSON parse error:', e); return; }
+
+        var body = document.getElementById('rowDetailBody');
+        if (!body) return;
+        body.innerHTML = '';
+
+        // Check if we have aggregated-view drilldown context
+        var preAggEl  = document.getElementById('preAggRowsJson');
+        var gbColsEl  = document.getElementById('groupByFieldsJson');
+        var preAggRaw = preAggEl  ? (preAggEl.textContent  || '').trim() : '';
+        var gbColsRaw = gbColsEl  ? (gbColsEl.textContent  || '').trim() : '';
+
+        if (preAggRaw.length > 2 && gbColsRaw.length > 2) {
+            try {
+                var preAggRows = JSON.parse(preAggRaw);
+                var gbCols     = JSON.parse(gbColsRaw);
+                if (preAggRows.length > 0 && gbCols.length > 0) {
+                    // Filter source rows to those belonging to this aggregated group
+                    var sourceRows = preAggRows.filter(function(r) {
+                        return gbCols.every(function(col) {
+                            return String(r[col] != null ? r[col] : '') ===
+                                   String(rowData[col] != null ? rowData[col] : '');
+                        });
+                    });
+                    if (sourceRows.length > 0) {
+                        _buildDrilldownView(body, rowData, gbCols, sourceRows);
+                        PF('rowDetailDlg').show();
+                        return;
+                    }
+                }
+            } catch(e) { /* fall through to field view */ }
+        }
+
+        // No drilldown context — show the row's own fields
+        _buildFieldView(body, rowData);
+        PF('rowDetailDlg').show();
+    }
+
+    // Show a single record's key-value pairs
+    function _buildFieldView(body, rowData) {
+        Object.keys(rowData).forEach(function(key) {
+            body.appendChild(_makeRow(key, rowData[key]));
+        });
+    }
+
+    // Show the N source records that roll up into this aggregated row, one at a time
+    function _buildDrilldownView(body, groupRow, gbCols, sourceRows) {
+        // Header: group label + count
+        var header = document.createElement('p');
+        header.className = 'drilldownHeader';
+        var groupLabel = gbCols.map(function(c) { return _displayValue(c, groupRow[c]); }).join(' · ');
+        header.textContent = groupLabel + ' — ' + sourceRows.length +
+                             ' source record' + (sourceRows.length === 1 ? '' : 's');
+        body.appendChild(header);
+
+        if (sourceRows.length === 1) {
+            var sole = document.createElement('div');
+            sole.className = 'drilldownRecord';
+            Object.keys(sourceRows[0]).forEach(function(k) { sole.appendChild(_makeRow(k, sourceRows[0][k])); });
+            body.appendChild(sole);
+            return;
+        }
+
+        // Navigation bar: [◀] [dropdown] of N [▶]
+        var nav = document.createElement('div');
+        nav.className = 'drilldownNav';
+
+        var prevBtn = document.createElement('button');
+        prevBtn.type = 'button'; prevBtn.className = 'drilldownNavBtn'; prevBtn.textContent = '◀';
+
+        var sel = document.createElement('select');
+        sel.className = 'drilldownSelect';
+        sourceRows.forEach(function(_, i) {
+            var opt = document.createElement('option');
+            opt.value = i; opt.textContent = 'Record ' + (i + 1);
+            sel.appendChild(opt);
+        });
+
+        var ofLabel = document.createElement('span');
+        ofLabel.className = 'drilldownOf'; ofLabel.textContent = 'of ' + sourceRows.length;
+
+        var nextBtn = document.createElement('button');
+        nextBtn.type = 'button'; nextBtn.className = 'drilldownNavBtn'; nextBtn.textContent = '▶';
+
+        nav.appendChild(prevBtn); nav.appendChild(sel);
+        nav.appendChild(ofLabel); nav.appendChild(nextBtn);
+        body.appendChild(nav);
+
+        // Record display panel
+        var panel = document.createElement('div');
+        panel.className = 'drilldownRecord';
+        body.appendChild(panel);
+
+        function renderRecord(idx) {
+            if (idx < 0) idx = 0;
+            if (idx >= sourceRows.length) idx = sourceRows.length - 1;
+            sel.value = idx;
+            prevBtn.disabled = (idx === 0);
+            nextBtn.disabled = (idx === sourceRows.length - 1);
+            panel.innerHTML = '';
+            Object.keys(sourceRows[idx]).forEach(function(k) { panel.appendChild(_makeRow(k, sourceRows[idx][k])); });
+        }
+
+        sel.addEventListener('change', function() { renderRecord(parseInt(this.value, 10)); });
+        prevBtn.addEventListener('click', function() { renderRecord(parseInt(sel.value, 10) - 1); });
+        nextBtn.addEventListener('click', function() { renderRecord(parseInt(sel.value, 10) + 1); });
+
+        renderRecord(0);
+    }
+
+    function _makeRow(key, val) {
+        var div = document.createElement('div');
+        div.className = 'rowDetailRow';
+        var k = document.createElement('span'); k.className = 'rowDetailKey'; k.textContent = _fieldLabel(key);
+        var v = document.createElement('span'); v.className = 'rowDetailVal'; v.textContent = _displayValue(key, val);
+        div.appendChild(k); div.appendChild(v);
+        return div;
+    }
+
+    function _fieldLabel(field) {
+        return field.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()
+                    .replace(/^[a-z]/, function(c) { return c.toUpperCase(); });
+    }
+
+    function _displayValue(key, val) {
+        if (val === null || val === undefined || val === '') return '—';
+        if (typeof val === 'number') {
+            var lc = key.toLowerCase();
+            var isCurrency = lc.includes('amount') || lc.includes('total') ||
+                             lc.includes('price')  || lc.includes('revenue') ||
+                             lc.includes('gross')  || lc.includes('unit');
+            if (isCurrency) {
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+            }
+            return new Intl.NumberFormat('en-US').format(val);
+        }
+        return String(val);
     }
 
     function downloadChart() {

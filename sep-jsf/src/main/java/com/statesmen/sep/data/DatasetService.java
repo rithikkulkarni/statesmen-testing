@@ -97,6 +97,7 @@ public class DatasetService {
     @PostConstruct
     public void init() {
         datasets.put("payments",    buildPayments());
+        datasets.put("sepDemo",     buildSepMockPayments());  // always present, regardless of API
         datasets.put("adjustments", buildAdjustments());
         datasets.put("exceptions",  buildExceptions());
         datasets.put("candy",       buildCandy());
@@ -259,28 +260,104 @@ public class DatasetService {
     // ── Payments Baseline ─────────────────────────────────────────────────────
 
     private DatasetInfo buildPayments() {
-        // Prefer live SEP API data; fall back to local demo rows if the key is absent or the call fails
+        // Prefer live SEP API data; fall back to 100-row mock that mirrors the API schema
         List<Map<String, Object>> apiRows = sepApiService.fetchTransactions(
                 "2020-01-01T00:00:00Z", "2030-12-31T23:59:59Z");
-
         if (!apiRows.isEmpty()) {
             return new DatasetInfo("payments", "SEP Transactions",
                     sepTransactionColumns(), apiRows);
         }
+        return buildSepMockPayments();
+    }
 
-        // ── Local demo fallback ───────────────────────────────────────────────
-        List<Map<String, Object>> base = new ArrayList<>(Arrays.asList(
-            payment(1001,"Acme Insurance Group",       "Aetna", "POL-001",1250.45,"Paid",   "ACH",         "2026-05-01","Southeast"),
-            payment(1002,"Blue Ridge Health",          "Cigna", "POL-002",2400.00,"Failed", "Credit Card", "2026-05-03","Midwest"),
-            payment(1003,"NC Mutual",                  "Aetna", "POL-003",3400.75,"Pending","Wire",        "2026-05-05","Southeast"),
-            payment(1004,"Carolina Benefits",          "United","POL-004", 890.15,"Paid",   "ACH",         "2026-05-07","West"),
-            payment(1005,"Premier Insurance Services", "Humana","POL-005",5000.00,"Failed", "Credit Card", "2026-05-10","Northeast"),
-            payment(1006,"Triangle Risk Advisors",     "Cigna", "POL-006",1800.20,"Paid",   "ACH",         "2026-05-12","South"),
-            payment(1007,"Metro Employee Benefits",    "United","POL-007",2150.80,"Pending","Wire",        "2026-05-15","Midwest"),
-            payment(1008,"Atlantic Insurance Brokers", "Aetna", "POL-008",4125.33,"Failed", "ACH",         "2026-05-18","East")
-        ));
-        return new DatasetInfo("payments", "Payments (Demo)",
-                paymentColumns(), buildRows(base,1000,"POL",0,"2026-05-20",0,725,387.45,0));
+    // ── 100-row mock dataset matching the SEP API field schema ────────────────
+
+    private static final String[] SEP_FIRSTS = {
+        "James","Mary","Robert","Patricia","John","Jennifer","Michael","Linda",
+        "William","Barbara","David","Elizabeth","Richard","Susan","Joseph","Jessica",
+        "Thomas","Sarah","Charles","Karen","Daniel","Lisa","Matthew","Nancy","Anthony",
+        "Mark","Betty","Donald","Margaret","Paul","Sandra","Steven","Ashley","Andrew","Dorothy",
+        "Joshua","Kimberly","Ryan","Donna","Kevin","Carol","Brian","Michelle","George","Emily"
+    };
+    private static final String[] SEP_LASTS = {
+        "Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis",
+        "Rodriguez","Martinez","Wilson","Anderson","Taylor","Thomas","Moore",
+        "Jackson","Martin","Lee","Thompson","White","Harris","Clark","Lewis","Robinson","Walker",
+        "Hall","Allen","Young","King","Wright","Lopez","Hill","Scott","Green","Adams",
+        "Baker","Nelson","Carter","Mitchell","Perez","Roberts","Turner","Phillips","Campbell","Parker"
+    };
+    private static final String[] SEP_DOMAINS = {
+        "gmail.com","yahoo.com","outlook.com","icloud.com","hotmail.com","protonmail.com"
+    };
+    // Realistic distribution: ~70% APPROVED, ~18% DECLINED, ~7% PENDING, ~3% VOIDED, ~2% REFUNDED
+    private static final String[] SEP_STATUS_POOL = {
+        "APPROVED","APPROVED","APPROVED","APPROVED","APPROVED","APPROVED","APPROVED","APPROVED","APPROVED","APPROVED",
+        "APPROVED","APPROVED","APPROVED","APPROVED",
+        "DECLINED","DECLINED","DECLINED","DECLINED",
+        "PENDING","PENDING",
+        "VOIDED",
+        "REFUNDED"
+    };
+    private static final String REF_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+    private DatasetInfo buildSepMockPayments() {
+        List<Map<String, Object>> rows = new ArrayList<>(100);
+        for (int i = 0; i < 100; i++) {
+            String first  = SEP_FIRSTS[(i * 13 + 5)  % SEP_FIRSTS.length];
+            String last   = SEP_LASTS [(i * 17 + 11) % SEP_LASTS.length];
+            String domain = SEP_DOMAINS[(i * 7 + 3)  % SEP_DOMAINS.length];
+            String status = SEP_STATUS_POOL[(i * 3 + 7) % SEP_STATUS_POOL.length];
+
+            // Reference number — 10 uppercase alphanumeric, no confusable chars
+            char[] refArr = new char[10];
+            for (int j = 0; j < 10; j++)
+                refArr[j] = REF_CHARS.charAt(Math.abs((i * 73 + j * 31 + 137) * 1664525 + 1013904223) % REF_CHARS.length());
+            String refNum = new String(refArr);
+
+            // Transaction ID — UUID-like format
+            String transNum = String.format("%08x-%04x-4%03x-b%03x-%012x",
+                (i * 0xFDECBA9 + 0x10000000) & 0x7FFFFFFF,
+                (i * 0x9876 + 0x1234) & 0xFFFF,
+                (i * 0x0F37 + 0x100) & 0xFFF,
+                (i * 0xABCD + 0x200) & 0xFFF,
+                ((long) i * 0xFEDCBA987L + 0x100000000000L) & 0xFFFFFFFFFFFFL);
+
+            // Amount: $75 – $4 950, spread deterministically
+            double amount = Math.round((75.0 + ((i * 49.37 + (i % 7) * 137.5) % 4875.0)) * 100.0) / 100.0;
+
+            // Auth code: 6-digit numeric string
+            String authCode = String.format("%06d", ((i + 1) * 97 + 13) % 1000000);
+
+            // Policy number
+            String policy = String.format("POL-%06d", 100001 + i * 7);
+
+            // Transaction date — all records get a date; spread across 2024–2025
+            String date = String.format("202%d-%02d-%02d", 4 + (i % 2), (i % 12) + 1, (i % 28) + 1);
+
+            // Result message
+            String message = switch (status) {
+                case "APPROVED"  -> "APPROVED " + authCode;
+                case "DECLINED"  -> "DECLINED - DO NOT HONOR";
+                case "REFUNDED"  -> "REFUNDED " + authCode;
+                case "VOIDED"    -> "VOIDED - TRANSACTION CANCELLED";
+                default          -> "PENDING - AWAITING AUTHORIZATION";
+            };
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("referenceNumber", refNum);
+            row.put("billingName",     first + " " + last);
+            row.put("insuredName",     first + " " + last);
+            row.put("policyNumber",    policy);
+            row.put("amount",          amount);
+            row.put("status",          status);
+            row.put("depositDate",     date);
+            row.put("authCode",        authCode);
+            row.put("email",           first.toLowerCase() + "." + last.toLowerCase() + "@" + domain);
+            row.put("message",         message);
+            row.put("transNumber",     transNum);
+            rows.add(row);
+        }
+        return new DatasetInfo("sepDemo", "SEP Transactions (Demo)", sepTransactionColumns(), rows);
     }
 
     // ── Rebills & Adjustments ─────────────────────────────────────────────────

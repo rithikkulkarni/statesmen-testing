@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -156,7 +157,7 @@ public class AiBean implements Serializable {
         "  direction: \"asc\" or \"desc\". Empty array [] clears sorting.",
         "- \"columns\": visible fields in display order. Absent fields are hidden.",
         "  Only include when user explicitly asks to show, hide, or rearrange columns.",
-        "- \"dataset\": switch dataset (payments, adjustments, exceptions, candy).",
+        "- \"dataset\": switch dataset (payments, sepDemo, adjustments, exceptions, candy).",
         "- Omit a key entirely if you are not changing it.",
         "",
         "CRITICAL — sort vs columns are completely independent:",
@@ -164,6 +165,14 @@ public class AiBean implements Serializable {
         "  'Show only columns X and Y'  → only set \"columns\", NEVER touch \"sort\"",
         "  'Move column X to the front' → only set \"columns\", NEVER touch \"sort\"",
         "  Generating \"columns\" when only sorting is requested HIDES all other columns.",
+        "",
+        "CRITICAL — sorting the table/grid/data is ALWAYS a grid mode action, never SQL:",
+        "  'Sort the table by X'  → modes:[\"grid\"], gridChange:{sort:[...]}, needsQuery:false",
+        "  'Order the data by X'  → modes:[\"grid\"], gridChange:{sort:[...]}, needsQuery:false",
+        "  'Sort by X descending' → modes:[\"grid\"], gridChange:{sort:[...]}, needsQuery:false",
+        "  NEVER use the SQL sort op just to re-order the grid. SQL sort is only for queries",
+        "  that filter/aggregate data (e.g. topN, groupBy with sort, ranked lists).",
+        "  'table', 'grid', 'data', and 'results' all refer to the same display. They are synonyms.",
         "",
         "SCOPE: always \"base_dataset\" unless user explicitly says \"current view\" or \"visible rows\".",
         "",
@@ -466,9 +475,16 @@ public class AiBean implements Serializable {
                 }
             }
 
-            // Update DataTable with query results when visual mode is active
-            if (hasVisual && !finalRows.isEmpty()) {
+            // Update DataTable with query results whenever SQL ran — not just in visual mode
+            if (!finalRows.isEmpty()) {
                 appBean.loadAnalysisResults(finalColumns, finalRows);
+                // Store drilldown context so the detail dialog can show source records
+                List<String> gbCols = detectGroupByColumns(steps);
+                if (!gbCols.isEmpty()) {
+                    appBean.setDrilldownContext(fetchPreAggRows(steps, ds), gbCols);
+                } else {
+                    appBean.clearDrilldownContext();
+                }
             }
 
             // Build chart — honour explicit type the user requested
@@ -560,7 +576,7 @@ public class AiBean implements Serializable {
             Numeric: %s
             Text/categorical: %s
             Current config: %s
-            Datasets available: payments, adjustments, exceptions, candy
+            Datasets available: payments, sepDemo, adjustments, exceptions, candy
 
             Sample rows (real values):
             %s
@@ -578,38 +594,47 @@ public class AiBean implements Serializable {
 
     /** Port of buildFewShotExamples — unified examples covering all three modes. */
     private String buildFewShotExamples(String datasetId) {
-        boolean isPayment = List.of("payments","adjustments","exceptions").contains(datasetId);
+        boolean isPayment = List.of("payments","sepDemo","adjustments","exceptions").contains(datasetId);
         boolean isCandy   = "candy".equals(datasetId);
         StringBuilder sb  = new StringBuilder("EXAMPLES:\n");
 
         if (isPayment) {
             sb.append("""
                 Q: "Show me the payments data"
-                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["What aspect would be most useful — totals by carrier, a status breakdown, failure rates, or something else?","Is there a particular date range or time period you'd like to focus on?"],"needsQuery":false,"directAnswer":"A couple of things to confirm before I pull the data:","gridChange":null}
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["What aspect would be most useful — totals by status, approval rates, or declined payment exposure?","Is there a particular time period you'd like to focus on?"],"needsQuery":false,"directAnswer":"A couple of things to confirm before I pull the data:","gridChange":null}
 
                 Q: "What is performing well?"
-                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["Which metric defines performance here — approval rate, total payment volume, or amount collected?","Are you comparing across carriers, payment types, or time periods?"],"needsQuery":false,"directAnswer":"One clarification before I proceed:","gridChange":null}
+                A: {"modes":["answer"],"confidence":"low","clarificationQuestions":["Which metric defines performance here — approval rate, total amount processed, or count of approved transactions?","Are you comparing across time periods or looking at the current snapshot?"],"needsQuery":false,"directAnswer":"One clarification before I proceed:","gridChange":null}
 
-                Q: "Chart failed payments by carrier"
-                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Failed Payments by Carrier — Total Exposure","scope":"base_dataset","steps":[{"label":"Filtering to failed","op":"filter","conditions":[{"column":"status","op":"eq","value":"Failed"}]},{"label":"Grouping by carrier","op":"groupBy","columns":["carrier"],"aggregations":[{"column":"amount","fn":"SUM","alias":"failedExposure"},{"column":"*","fn":"COUNT","alias":"count"}],"sort":{"column":"failedExposure","direction":"DESC"}}],"gridChange":null}
+                Q: "Chart declined payments by status"
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Declined vs Approved Payment Exposure","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"},{"column":"*","fn":"COUNT","alias":"count"}],"sort":{"column":"totalAmount","direction":"DESC"}}],"gridChange":null}
 
                 Q: "How many payments are there by status?"
                 A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Payment Count and Total Amount by Status","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
 
                 Q: "Give me a pie chart of payments by status"
-                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"pie","chartTitle":"Payment Distribution by Status","scope":"base_dataset","steps":[{"label":"Counting by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"pie","chartTitle":"Payment Distribution by Status","scope":"base_dataset","steps":[{"label":"Grouping by status","op":"groupBy","columns":["status"],"aggregations":[{"column":"*","fn":"COUNT","alias":"count"},{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"count","direction":"DESC"}}],"gridChange":null}
 
-                Q: "Bar chart of total amount by carrier"
-                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"bar","chartTitle":"Total Payment Amount by Carrier","scope":"base_dataset","steps":[{"label":"Summing by carrier","op":"groupBy","columns":["carrier"],"aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}],"sort":{"column":"totalAmount","direction":"DESC"}}],"gridChange":null}
+                Q: "What is the total approved amount?"
+                A: {"modes":["answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":null,"scope":"base_dataset","steps":[{"label":"Filtering to approved","op":"filter","conditions":[{"column":"status","op":"eq","value":"APPROVED"}]},{"label":"Summing approved amount","op":"groupBy","columns":["status"],"aggregations":[{"column":"amount","fn":"SUM","alias":"approvedTotal"},{"column":"*","fn":"COUNT","alias":"count"}]}],"gridChange":null}
 
                 Q: "Show a line chart of payments over time"
-                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"line","chartTitle":"Total Payment Amount — Month over Month","scope":"base_dataset","steps":[{"label":"Payments over time","op":"timeSeries","dateColumn":"date","granularity":"month","aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}]}],"gridChange":null}
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"line","chartTitle":"Total Payment Amount — Month over Month","scope":"base_dataset","steps":[{"label":"Payments over time","op":"timeSeries","dateColumn":"depositDate","granularity":"month","aggregations":[{"column":"amount","fn":"SUM","alias":"totalAmount"}]}],"gridChange":null}
+
+                Q: "Compare approved vs declined amounts"
+                A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":"bar","chartTitle":"Approved vs Declined — Total Amount","scope":"base_dataset","steps":[{"label":"Comparing approved vs declined","op":"compare","segments":[{"label":"Approved","conditions":[{"column":"status","op":"eq","value":"APPROVED"}]},{"label":"Declined","conditions":[{"column":"status","op":"eq","value":"DECLINED"}]}],"metrics":[{"column":"amount","fn":"SUM","alias":"totalAmount"},{"column":"*","fn":"COUNT","alias":"count"}]}],"gridChange":null}
 
                 Q: "Sort the grid by amount, highest first"
                 A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"amount","direction":"desc"}]}}
 
+                Q: "Sort the table by amount, highest first"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"amount","direction":"desc"}]}}
+
                 Q: "Sort by carrier then by amount descending"
                 A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"carrier","direction":"asc"},{"field":"amount","direction":"desc"}]}}
+
+                Q: "Order the data by status ascending"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"status","direction":"asc"}]}}
 
                 Q: "Clear all sorting"
                 A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[]}}
@@ -638,6 +663,12 @@ public class AiBean implements Serializable {
 
                 Q: "Chart revenue by marketing channel"
                 A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Total Revenue by Marketing Channel","scope":"base_dataset","steps":[{"label":"Revenue by channel","op":"groupBy","columns":["marketingChannel"],"aggregations":[{"column":"total","fn":"SUM","alias":"totalRevenue"},{"column":"*","fn":"COUNT","alias":"transactions"}],"sort":{"column":"totalRevenue","direction":"DESC"}}],"gridChange":null}
+
+                Q: "Sort the table by quantity, highest first"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"quantity","direction":"desc"}]}}
+
+                Q: "Sort the data by total revenue descending"
+                A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[{"field":"total","direction":"desc"}]}}
 
                 Q: "Total revenue by product category"
                 A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Total Revenue by Product Category","scope":"base_dataset","steps":[{"label":"Revenue by category","op":"groupBy","columns":["category"],"aggregations":[{"column":"total","fn":"SUM","alias":"totalRevenue"},{"column":"*","fn":"COUNT","alias":"transactions"}],"sort":{"column":"totalRevenue","direction":"DESC"}}],"gridChange":null}
@@ -763,6 +794,38 @@ public class AiBean implements Serializable {
             System.err.println("[AiBean] repairStepsWithAI failed: " + e.getMessage());
         }
         return null;
+    }
+
+    // Returns the groupBy column(s) from the last aggregation step, or empty list if none.
+    private List<String> detectGroupByColumns(List<JsonObject> steps) {
+        for (int i = steps.size() - 1; i >= 0; i--) {
+            String op = steps.get(i).has("op") ? steps.get(i).get("op").getAsString() : "";
+            if ("groupBy".equals(op)) {
+                List<String> cols = new ArrayList<>();
+                if (steps.get(i).has("columns"))
+                    steps.get(i).getAsJsonArray("columns").forEach(c -> cols.add(c.getAsString()));
+                return cols;
+            }
+            if ("timeSeries".equals(op)) return List.of("period");
+            if ("compare".equals(op))    return List.of("segment");
+        }
+        return List.of();
+    }
+
+    // Returns the rows that fed the final aggregation step — the raw source records for drilldown.
+    private List<Map<String, Object>> fetchPreAggRows(List<JsonObject> steps, DatasetInfo ds) {
+        try {
+            if (steps.size() <= 1) {
+                // Single-step aggregation: source is the full base dataset
+                return new ArrayList<>(ds.getRows());
+            }
+            // Multi-step: query the intermediate table stored just before the last step
+            String tableId = "__step_" + (steps.size() - 2);
+            return analysisService.executeQuery("SELECT * FROM \"" + tableId + "\"");
+        } catch (SQLException e) {
+            System.err.println("[AiBean] fetchPreAggRows failed: " + e.getMessage());
+            return new ArrayList<>(ds.getRows());
+        }
     }
 
     private String buildChartTitle(List<String> columns, List<JsonObject> steps) {

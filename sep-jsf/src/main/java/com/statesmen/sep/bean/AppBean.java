@@ -51,6 +51,10 @@ public class AppBean implements Serializable {
     private String currentChartJson  = null;
     private String currentChartTitle = "";
 
+    // Drilldown context — the pre-aggregation rows and groupBy columns for the current analysis view
+    private List<Map<String, Object>> preAggRows    = new ArrayList<>();
+    private List<String>              groupByFields = new ArrayList<>();
+
     public static class QuerySnapshot implements java.io.Serializable {
         private final List<String> columns;
         private final List<Map<String, Object>> rows;
@@ -79,6 +83,27 @@ public class AppBean implements Serializable {
         this.currentRows = new ArrayList<>(info.getRows());
         this.filteredRows = null;
         this.sortMeta = new ArrayList<>();
+        clearDrilldownContext();
+    }
+
+    public void setDrilldownContext(List<Map<String, Object>> rows, List<String> fields) {
+        this.preAggRows    = rows   != null ? rows   : new ArrayList<>();
+        this.groupByFields = fields != null ? fields : new ArrayList<>();
+    }
+
+    public void clearDrilldownContext() {
+        this.preAggRows    = new ArrayList<>();
+        this.groupByFields = new ArrayList<>();
+    }
+
+    public String getPreAggRowsJson() {
+        if (preAggRows.isEmpty()) return "[]";
+        return new Gson().toJson(preAggRows);
+    }
+
+    public String getGroupByFieldsJson() {
+        if (groupByFields.isEmpty()) return "[]";
+        return new Gson().toJson(groupByFields);
     }
 
     public void onDatasetChange() {
@@ -186,6 +211,11 @@ public class AppBean implements Serializable {
     public List<Map.Entry<String, Object>> getSelectedRowEntries() {
         if (selectedRow == null) return Collections.emptyList();
         return new ArrayList<>(selectedRow.entrySet());
+    }
+
+    public String rowToJson(Map<String, Object> row) {
+        if (row == null) return "{}";
+        return new Gson().toJson(row);
     }
 
     public String formatFieldName(String field) {
@@ -302,7 +332,37 @@ public class AppBean implements Serializable {
                     .priority(priority++)
                     .build());
             }
+            // Immediately sort the in-memory rows so the grid reflects the new order.
+            // PrimeFaces DataTable only auto-sorts on user header-clicks; programmatic
+            // sortMeta changes require us to sort the underlying list ourselves.
+            sortRows();
         }
+    }
+
+    // Sort currentRows (and filteredRows if active) according to the current sortMeta.
+    private void sortRows() {
+        if (sortMeta.isEmpty()) return;
+        List<SortMeta> ordered = sortMeta.stream()
+            .sorted(java.util.Comparator.comparingInt(SortMeta::getPriority))
+            .collect(Collectors.toList());
+        java.util.Comparator<Map<String, Object>> cmp = (a, b) -> {
+            for (SortMeta sm : ordered) {
+                int c = compareValues(a.get(sm.getField()), b.get(sm.getField()));
+                if (c != 0) return sm.getOrder() == SortOrder.DESCENDING ? -c : c;
+            }
+            return 0;
+        };
+        if (!currentRows.isEmpty())                        currentRows.sort(cmp);
+        if (filteredRows != null && !filteredRows.isEmpty()) filteredRows.sort(cmp);
+    }
+
+    private int compareValues(Object a, Object b) {
+        if (a == null && b == null) return 0;
+        if (a == null) return -1;
+        if (b == null) return 1;
+        if (a instanceof Number && b instanceof Number)
+            return Double.compare(((Number) a).doubleValue(), ((Number) b).doubleValue());
+        return a.toString().compareToIgnoreCase(b.toString());
     }
 
     // New column format: ["field1","field2",...] — visible fields in display order, absent = hidden

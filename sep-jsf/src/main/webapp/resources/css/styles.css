@@ -483,6 +483,58 @@ body { background: var(--bg); color: var(--text); font-size: 14px; }
 }
 .rowDetailVal { flex: 1; color: var(--text); word-break: break-word; }
 
+/* Drilldown view — record navigator inside the detail dialog */
+.drilldownHeader {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    padding: 10px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    margin: 0;
+    position: sticky;
+    top: 0;
+    background: var(--panel-bg, #fff);
+    z-index: 1;
+}
+.drilldownNav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-bg, #fff);
+}
+.drilldownNavBtn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 3px 10px;
+    font-size: 0.82rem;
+    color: var(--text);
+    font-family: inherit;
+    transition: background 0.15s;
+}
+.drilldownNavBtn:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); }
+.drilldownNavBtn:disabled { opacity: 0.3; cursor: default; }
+.drilldownSelect {
+    font-family: inherit;
+    font-size: 0.82rem;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    max-width: 160px;
+}
+.drilldownOf {
+    font-size: 0.82rem;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.drilldownRecord { padding: 4px 0; }
+
 /* ── Dedicated chart panel (main content area) ───────────────────────────── */
 .chartPanel { padding: 16px; }
 
