@@ -136,6 +136,7 @@ public class AppBean implements Serializable {
         this.filteredRows = null;
         this.sortMeta     = new ArrayList<>();
         this.analysisViewActive = true;
+        exportConfig(); // keep configJson in sync so follow-up sort/column patches use the right schema
     }
 
     /**
@@ -341,18 +342,32 @@ public class AppBean implements Serializable {
 
     // Sort currentRows (and filteredRows if active) according to the current sortMeta.
     private void sortRows() {
-        if (sortMeta.isEmpty()) return;
+        if (sortMeta.isEmpty() || currentRows.isEmpty()) return;
+
+        // Build a field-name resolver: exact match first, then case-insensitive contains-match.
+        // This handles the common case where the user says "sort by amount" but the aggregated
+        // column is named "totalAmount" or "SUM_amount" from the query alias.
+        Set<String> availableFields = currentRows.get(0).keySet();
+        java.util.function.Function<String, String> resolve = requested -> {
+            if (availableFields.contains(requested)) return requested;
+            String lower = requested.toLowerCase();
+            return availableFields.stream()
+                .filter(f -> f.toLowerCase().contains(lower) || lower.contains(f.toLowerCase()))
+                .findFirst().orElse(requested);
+        };
+
         List<SortMeta> ordered = sortMeta.stream()
             .sorted(java.util.Comparator.comparingInt(SortMeta::getPriority))
             .collect(Collectors.toList());
         java.util.Comparator<Map<String, Object>> cmp = (a, b) -> {
             for (SortMeta sm : ordered) {
-                int c = compareValues(a.get(sm.getField()), b.get(sm.getField()));
+                String field = resolve.apply(sm.getField());
+                int c = compareValues(a.get(field), b.get(field));
                 if (c != 0) return sm.getOrder() == SortOrder.DESCENDING ? -c : c;
             }
             return 0;
         };
-        if (!currentRows.isEmpty())                        currentRows.sort(cmp);
+        currentRows.sort(cmp);
         if (filteredRows != null && !filteredRows.isEmpty()) filteredRows.sort(cmp);
     }
 
@@ -404,19 +419,51 @@ public class AppBean implements Serializable {
     }
 
     public void applyGridPatch(JsonObject patch) {
-        applyPatch(patch);
+        if (analysisViewActive && patch.has("columns")) {
+            // In analysis view the visible columns are owned by the query result, not the grid config.
+            // Strip any "columns" key from the patch so the AI cannot accidentally hide them.
+            JsonObject sortOnly = new JsonObject();
+            patch.entrySet().forEach(e -> { if (!"columns".equals(e.getKey())) sortOnly.add(e.getKey(), e.getValue()); });
+            applyPatch(sortOnly);
+        } else {
+            applyPatch(patch);
+        }
         exportConfig();
     }
 
     private void applyPatch(JsonObject patch) {
+        // Apply each key independently — a sort-only patch NEVER touches columns, and vice versa.
+        // The old approach merged the patch into the full configJson and re-applied everything,
+        // which caused a sort patch to accidentally re-process stale columns from the previous config.
         try {
-            JsonObject current = JsonParser.parseString(configJson).getAsJsonObject();
-            if (patch.has("dataset"))   current.addProperty("dataset",  patch.get("dataset").getAsString());
-            if (patch.has("datasetId")) current.addProperty("dataset",  patch.get("datasetId").getAsString());
-            if (patch.has("sort"))      current.add("sort",    patch.get("sort"));
-            if (patch.has("columns"))   current.add("columns", patch.get("columns"));
-            applyTableConfig(current);
-        } catch (JsonSyntaxException ignored) {}
+            if (patch.has("dataset") || patch.has("datasetId")) {
+                String newDs = patch.has("dataset") ? patch.get("dataset").getAsString()
+                             : patch.get("datasetId").getAsString();
+                if (!newDs.equals(selectedDataset)) { selectedDataset = newDs; loadDataset(newDs); }
+            }
+            if (patch.has("columns")) {
+                JsonElement colEl = patch.get("columns");
+                if (colEl.isJsonArray()) applyColumnOrder(colEl.getAsJsonArray());
+                else if (colEl.isJsonObject()) applyColumnOrderLegacy(colEl.getAsJsonObject());
+            }
+            if (patch.has("sort") && patch.get("sort").isJsonArray()) {
+                sortMeta = new ArrayList<>();
+                int priority = 0;
+                for (JsonElement el : patch.getAsJsonArray("sort")) {
+                    if (!el.isJsonObject()) continue;
+                    JsonObject s = el.getAsJsonObject();
+                    if (!s.has("field")) continue;
+                    String field = s.get("field").getAsString();
+                    String dir = s.has("direction") ? s.get("direction").getAsString() : "asc";
+                    sortMeta.add(SortMeta.builder()
+                        .field(field)
+                        .order("desc".equalsIgnoreCase(dir) ? SortOrder.DESCENDING : SortOrder.ASCENDING)
+                        .priority(priority++)
+                        .build());
+                }
+                sortRows();
+            }
+        } catch (Exception ignored) {}
     }
 
     // ── Export config ─────────────────────────────────────────────────────────
