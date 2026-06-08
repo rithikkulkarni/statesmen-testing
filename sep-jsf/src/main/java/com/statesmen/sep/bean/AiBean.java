@@ -68,6 +68,7 @@ public class AiBean implements Serializable {
         "  \"visual\"  — run SQL and render results as a chart.",
         "  \"answer\"  — provide data-grounded natural-language analysis.",
         "  \"grid\"    — change the data grid (sort, column order/visibility).",
+        "  \"visual_change\" — reorder or restyle the existing chart WITHOUT re-running any query.",
         "- Combine freely: 'chart failed payments by carrier' → [\"visual\",\"answer\"]",
         "- Add \"visual\" when SQL results would make a meaningful chart.",
         "- Add \"answer\" whenever a natural-language explanation is provided.",
@@ -83,7 +84,8 @@ public class AiBean implements Serializable {
         "  \"chartTitle\": null,",
         "  \"steps\": [...],",
         "  \"directAnswer\": null,",
-        "  \"gridChange\": null",
+        "  \"gridChange\": null,",
+        "  \"visualChange\": null",
         "}",
         "",
         "CLARIFICATION RULES — clarification is the default. Proceeding without asking is the exception.",
@@ -176,6 +178,23 @@ public class AiBean implements Serializable {
         "  NEVER use the SQL sort op just to re-order the grid. SQL sort is only for queries",
         "  that filter/aggregate data (e.g. topN, groupBy with sort, ranked lists).",
         "  'table', 'grid', 'data', and 'results' all refer to the same display. They are synonyms.",
+        "",
+        "visualChange — modify how the existing chart is displayed. Omit keys you are not changing:",
+        "{ \"sort\": { \"by\": \"value\", \"direction\": \"asc\" } }",
+        "Rules for visualChange:",
+        "- Use \"visual_change\" ONLY when a chart is already shown and the user asks to reorder it.",
+        "- Do NOT use visual_change to produce new data — use \"visual\" mode for that.",
+        "- \"sort.by\": \"value\" sorts bars/slices by their numeric value.",
+        "             \"label\" sorts bars/slices alphabetically by their category label.",
+        "- \"sort.direction\": \"asc\" or \"desc\".",
+        "- NEVER set needsQuery:true or include steps[] when using visual_change alone.",
+        "",
+        "CRITICAL — chart sort order is ALWAYS a visual_change action, never SQL:",
+        "  'Sort the chart ascending'       → modes:[\"visual_change\"], visualChange:{sort:{by:\"value\",direction:\"asc\"}}",
+        "  'Sort bars from low to high'     → modes:[\"visual_change\"], visualChange:{sort:{by:\"value\",direction:\"asc\"}}",
+        "  'Reverse the bar order'          → modes:[\"visual_change\"], visualChange:{sort:{by:\"value\",direction:\"asc\"}}",
+        "  'Sort highest to lowest'         → modes:[\"visual_change\"], visualChange:{sort:{by:\"value\",direction:\"desc\"}}",
+        "  'Sort the chart alphabetically'  → modes:[\"visual_change\"], visualChange:{sort:{by:\"label\",direction:\"asc\"}}",
         "",
         "SCOPE: always \"base_dataset\" unless user explicitly says \"current view\" or \"visible rows\".",
         "",
@@ -421,12 +440,27 @@ public class AiBean implements Serializable {
             } catch (Exception e) { /* non-fatal */ }
         }
 
+        // ── Visual change mode — reorder existing chart without new SQL ────────
+        boolean hasVisualChange = modes.contains("visual_change");
+        boolean visualChangeApplied = false;
+        if (hasVisualChange && decision.has("visualChange") && !decision.get("visualChange").isJsonNull()
+                && appBean.getCurrentChartJson() != null) {
+            try {
+                appBean.applyVisualChange(decision.getAsJsonObject("visualChange"));
+                visualChangeApplied = true;
+            } catch (Exception e) { /* non-fatal */ }
+        }
+
         // ── Visual / Answer modes — no SQL needed ─────────────────────────────
         if ((hasVisual || hasAnswer) && !needsQuery) {
             String direct = decision.has("directAnswer") && !decision.get("directAnswer").isJsonNull()
                 ? decision.get("directAnswer").getAsString() : "";
             if (direct.isBlank()) direct = gridApplied ? "Grid updated." : "Analysis complete.";
-            messages.add(buildTextMessage(direct, gridApplied));
+            ChatMessage textMsg = buildTextMessage(direct, gridApplied);
+            String snapshotId = java.util.UUID.randomUUID().toString();
+            appBean.storeViewSnapshot(snapshotId);
+            textMsg.setSnapshotId(snapshotId);
+            messages.add(textMsg);
             history.add(Map.of("role", "assistant", "content", direct));
             statusMessage = "Done.";
             return;
@@ -445,7 +479,11 @@ public class AiBean implements Serializable {
                 String direct = decision.has("directAnswer") && !decision.get("directAnswer").isJsonNull()
                     ? decision.get("directAnswer").getAsString()
                     : "The query could not be constructed from the available data. Try rephrasing the request.";
-                messages.add(buildTextMessage(direct, gridApplied));
+                ChatMessage fallbackMsg = buildTextMessage(direct, gridApplied);
+                String fallbackSnapshotId = java.util.UUID.randomUUID().toString();
+                appBean.storeViewSnapshot(fallbackSnapshotId);
+                fallbackMsg.setSnapshotId(fallbackSnapshotId);
+                messages.add(fallbackMsg);
                 history.add(Map.of("role", "assistant", "content", direct));
                 statusMessage = "Done.";
                 return;
@@ -523,31 +561,42 @@ public class AiBean implements Serializable {
             }
 
             // Store snapshot so the user can restore this view from the chat message
-            String snapshotId = null;
-            if (!finalRows.isEmpty()) {
-                snapshotId = java.util.UUID.randomUUID().toString();
-                appBean.storeQuerySnapshot(snapshotId, finalColumns, finalRows);
-            }
+            String snapshotId = java.util.UUID.randomUUID().toString();
+            appBean.storeViewSnapshot(snapshotId);
 
             ChatMessage msg = buildAnalysisMessage(answer,
                 !finalRows.isEmpty() ? meta : null,
                 !finalColumns.isEmpty() ? finalColumns : null,
                 gridApplied);
 
-            if (snapshotId != null) msg.setSnapshotId(snapshotId);
+            msg.setSnapshotId(snapshotId);
             messages.add(msg);
             history.add(Map.of("role", "assistant", "content", answer));
             statusMessage = "Done.";
             return;
         }
 
-        // ── Grid-only mode (no visual/answer) ─────────────────────────────────
-        if (hasGrid) {
-            String msg = gridApplied ? "Grid updated." : "Could not apply the grid change.";
-            messages.add(new ChatMessage("assistant", "Analyst", msg,
-                "<p>" + esc(msg) + "</p>"
-                + (gridApplied ? "<p class=\"config-applied\">&#10003; Table updated — see the grid.</p>" : "")));
-            history.add(Map.of("role", "assistant", "content", msg));
+        // ── Grid / visual-change only (no visual/answer) ──────────────────────
+        if (hasGrid || hasVisualChange) {
+            List<String> parts = new ArrayList<>();
+            if (gridApplied)         parts.add("Grid updated.");
+            if (visualChangeApplied) parts.add("Chart updated.");
+            if (parts.isEmpty()) {
+                if (hasVisualChange && appBean.getCurrentChartJson() == null)
+                    parts.add("No chart is currently displayed to update.");
+                else
+                    parts.add("Could not apply the requested change.");
+            }
+            String msgText = String.join(" ", parts);
+            StringBuilder html = new StringBuilder("<p>").append(esc(msgText)).append("</p>");
+            if (gridApplied)         html.append("<p class=\"config-applied\">&#10003; Table updated — see the grid.</p>");
+            if (visualChangeApplied) html.append("<p class=\"config-applied\">&#10003; Chart updated — see the chart panel.</p>");
+            ChatMessage changeMsg = new ChatMessage("assistant", "Analyst", msgText, html.toString());
+            String snapshotId = java.util.UUID.randomUUID().toString();
+            appBean.storeViewSnapshot(snapshotId);
+            changeMsg.setSnapshotId(snapshotId);
+            messages.add(changeMsg);
+            history.add(Map.of("role", "assistant", "content", msgText));
             statusMessage = "Done.";
         }
     }
@@ -641,6 +690,24 @@ public class AiBean implements Serializable {
 
                 Q: "Clear all sorting"
                 A: {"modes":["grid"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"chartType":null,"chartTitle":null,"gridChange":{"sort":[]}}
+
+                Q: "Sort the chart in ascending order"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"asc"}},"gridChange":null}
+
+                Q: "Sort the bars from lowest to highest"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"asc"}},"gridChange":null}
+
+                Q: "Sort the chart from highest to lowest"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"desc"}},"gridChange":null}
+
+                Q: "Reverse the chart order"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"asc"}},"gridChange":null}
+
+                Q: "Sort the chart alphabetically"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"label","direction":"asc"}},"gridChange":null}
+
+                Q: "Sort the chart labels in reverse alphabetical order"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"label","direction":"desc"}},"gridChange":null}
                 """);
         }
 
@@ -675,6 +742,18 @@ public class AiBean implements Serializable {
 
                 Q: "Total revenue by product category"
                 A: {"modes":["visual","answer"],"confidence":"high","clarificationQuestions":[],"needsQuery":true,"chartType":null,"chartTitle":"Total Revenue by Product Category","scope":"base_dataset","steps":[{"label":"Revenue by category","op":"groupBy","columns":["category"],"aggregations":[{"column":"total","fn":"SUM","alias":"totalRevenue"},{"column":"*","fn":"COUNT","alias":"transactions"}],"sort":{"column":"totalRevenue","direction":"DESC"}}],"gridChange":null}
+
+                Q: "Sort the chart ascending"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"asc"}},"gridChange":null}
+
+                Q: "Sort the bars from lowest to highest"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"asc"}},"gridChange":null}
+
+                Q: "Sort the chart from highest to lowest"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"value","direction":"desc"}},"gridChange":null}
+
+                Q: "Sort the chart alphabetically by category"
+                A: {"modes":["visual_change"],"confidence":"high","clarificationQuestions":[],"needsQuery":false,"visualChange":{"sort":{"by":"label","direction":"asc"}},"gridChange":null}
                 """);
         }
 

@@ -3,6 +3,7 @@ package com.statesmen.sep.bean;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,6 +25,7 @@ import com.google.gson.JsonSyntaxException;
 import com.statesmen.sep.data.DatasetService;
 import com.statesmen.sep.model.ColumnDef;
 import com.statesmen.sep.model.DatasetInfo;
+import com.statesmen.sep.model.SavedView;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.SessionScoped;
@@ -44,24 +46,53 @@ public class AppBean implements Serializable {
     private List<Map<String, Object>> filteredRows;
     private List<SortMeta> sortMeta = new ArrayList<>();
     private boolean analysisViewActive = false;
-    private final Map<String, QuerySnapshot> querySnapshots = new LinkedHashMap<>();
+    private final Map<String, ViewSnapshot> querySnapshots = new LinkedHashMap<>();
 
     private Map<String, Object> selectedRow = null;
 
     private String currentChartJson  = null;
     private String currentChartTitle = "";
 
+    // ── Saved views ───────────────────────────────────────────────────────────
+    private final List<SavedView> savedViews        = new ArrayList<>();
+    private       String          selectedSavedViewId = null;
+    private       String          newViewName         = "";
+
     // Drilldown context — the pre-aggregation rows and groupBy columns for the current analysis view
     private List<Map<String, Object>> preAggRows    = new ArrayList<>();
     private List<String>              groupByFields = new ArrayList<>();
 
-    public static class QuerySnapshot implements java.io.Serializable {
-        private final List<String> columns;
-        private final List<Map<String, Object>> rows;
-        public QuerySnapshot(List<String> c, List<Map<String, Object>> r) { columns = c; rows = r; }
-        public List<String> getColumns() { return columns; }
-        public List<Map<String, Object>> getRows() { return rows; }
+    /** Complete UI state at a point in time — grid config + query rows + chart. */
+    public static class ViewSnapshot implements java.io.Serializable {
+        private final String                    dataset;
+        private final String                    configJson;
+        private final List<String>              queryColumns;  // non-null when analysisView=true
+        private final List<Map<String, Object>> queryRows;     // non-null when analysisView=true
+        private final boolean                   analysisView;
+        private final String                    chartJson;
+        private final String                    chartTitle;
+
+        public ViewSnapshot(String dataset, String configJson,
+                            List<String> queryColumns, List<Map<String, Object>> queryRows,
+                            boolean analysisView, String chartJson, String chartTitle) {
+            this.dataset      = dataset;
+            this.configJson   = configJson;
+            this.queryColumns = queryColumns;
+            this.queryRows    = queryRows;
+            this.analysisView = analysisView;
+            this.chartJson    = chartJson;
+            this.chartTitle   = chartTitle;
+        }
+
+        public String                    getDataset()      { return dataset; }
+        public String                    getConfigJson()   { return configJson; }
+        public List<String>              getQueryColumns() { return queryColumns; }
+        public List<Map<String, Object>> getQueryRows()    { return queryRows; }
+        public boolean                   isAnalysisView()  { return analysisView; }
+        public String                    getChartJson()    { return chartJson; }
+        public String                    getChartTitle()   { return chartTitle; }
     }
+
 
     private String configJson = "";
     private String statusMessage = "Ready. Multi-sort: Shift+click column headers to add secondary sorting.";
@@ -186,6 +217,74 @@ public class AppBean implements Serializable {
         this.currentChartTitle = title != null ? title : "Analysis Results";
     }
 
+    /**
+     * Reorders the labels and parallel data arrays in the current Chart.js config JSON.
+     * Supported change keys:
+     *   "sort": { "by": "value"|"label", "direction": "asc"|"desc", "datasetIndex": 0 }
+     */
+    public void applyVisualChange(JsonObject change) {
+        if (currentChartJson == null || currentChartJson.isBlank()) return;
+        try {
+            JsonObject cfg = JsonParser.parseString(currentChartJson).getAsJsonObject();
+            if (!cfg.has("data")) return;
+            JsonObject data = cfg.getAsJsonObject("data");
+            if (!data.has("labels") || !data.get("labels").isJsonArray()) return;
+            if (!data.has("datasets") || !data.get("datasets").isJsonArray()) return;
+
+            JsonArray labels   = data.getAsJsonArray("labels");
+            JsonArray datasets = data.getAsJsonArray("datasets");
+            int n = labels.size();
+            if (n == 0) return;
+
+            if (change.has("sort")) {
+                JsonObject sort = change.getAsJsonObject("sort");
+                String by  = sort.has("by")        ? sort.get("by").getAsString()        : "value";
+                String dir = sort.has("direction") ? sort.get("direction").getAsString() : "desc";
+                int dsIdx  = sort.has("datasetIndex") ? sort.get("datasetIndex").getAsInt() : 0;
+                boolean asc = "asc".equalsIgnoreCase(dir);
+
+                JsonObject primaryDs = dsIdx < datasets.size()
+                    ? datasets.get(dsIdx).getAsJsonObject() : datasets.get(0).getAsJsonObject();
+                JsonArray primaryData = primaryDs.has("data") ? primaryDs.getAsJsonArray("data") : new JsonArray();
+
+                List<Integer> indices = new ArrayList<>();
+                for (int i = 0; i < n; i++) indices.add(i);
+                indices.sort((a, b) -> {
+                    if ("label".equals(by)) {
+                        String la = a < labels.size() ? labels.get(a).getAsString() : "";
+                        String lb = b < labels.size() ? labels.get(b).getAsString() : "";
+                        return asc ? la.compareToIgnoreCase(lb) : lb.compareToIgnoreCase(la);
+                    }
+                    double va = a < primaryData.size() && primaryData.get(a).isJsonPrimitive()
+                        ? primaryData.get(a).getAsDouble() : 0;
+                    double vb = b < primaryData.size() && primaryData.get(b).isJsonPrimitive()
+                        ? primaryData.get(b).getAsDouble() : 0;
+                    return asc ? Double.compare(va, vb) : Double.compare(vb, va);
+                });
+
+                JsonArray newLabels = new JsonArray();
+                for (int idx : indices) newLabels.add(labels.get(idx));
+                data.add("labels", newLabels);
+
+                for (JsonElement dsEl : datasets) {
+                    if (!dsEl.isJsonObject()) continue;
+                    JsonObject dsObj = dsEl.getAsJsonObject();
+                    if (!dsObj.has("data") || !dsObj.get("data").isJsonArray()) continue;
+                    JsonArray oldData = dsObj.getAsJsonArray("data");
+                    JsonArray newData = new JsonArray();
+                    for (int idx : indices) {
+                        if (idx < oldData.size()) newData.add(oldData.get(idx));
+                    }
+                    dsObj.add("data", newData);
+                }
+            }
+
+            currentChartJson = new GsonBuilder().setPrettyPrinting().create().toJson(cfg);
+        } catch (Exception e) {
+            System.err.println("[AppBean] applyVisualChange failed: " + e.getMessage());
+        }
+    }
+
     public void clearChart() {
         currentChartJson  = null;
         currentChartTitle = "";
@@ -234,14 +333,40 @@ public class AppBean implements Serializable {
             .orElse(false);
     }
 
-    public void storeQuerySnapshot(String id, List<String> columns, List<Map<String, Object>> rows) {
-        querySnapshots.put(id, new QuerySnapshot(new ArrayList<>(columns), new ArrayList<>(rows)));
+    /**
+     * Captures the complete current UI state (grid + chart) keyed by id.
+     * Call this AFTER all grid and chart updates for the current turn are applied.
+     */
+    public void storeViewSnapshot(String id) {
+        List<String>             qcols = analysisViewActive
+            ? allColumns.stream().map(ColumnDef::getField).collect(Collectors.toList()) : null;
+        List<Map<String, Object>> qrows = analysisViewActive ? new ArrayList<>(currentRows) : null;
+        querySnapshots.put(id, new ViewSnapshot(
+            selectedDataset, configJson, qcols, qrows, analysisViewActive,
+            currentChartJson, currentChartTitle));
     }
 
     public void restoreSnapshot(String snapshotId) {
-        QuerySnapshot snap = querySnapshots.get(snapshotId);
+        ViewSnapshot snap = querySnapshots.get(snapshotId);
         if (snap == null) return;
-        loadAnalysisResults(snap.getColumns(), snap.getRows());
+
+        if (snap.isAnalysisView() && snap.getQueryRows() != null) {
+            loadAnalysisResults(snap.getQueryColumns(), snap.getQueryRows());
+        } else {
+            // Restore base-dataset view: reset to saved dataset then re-apply saved config
+            if (!snap.getDataset().equals(selectedDataset)) selectedDataset = snap.getDataset();
+            loadDataset(selectedDataset);
+            if (snap.getConfigJson() != null) {
+                try {
+                    applyTableConfig(com.google.gson.JsonParser.parseString(snap.getConfigJson()).getAsJsonObject());
+                } catch (Exception ignored) {}
+            }
+            analysisViewActive = false;
+        }
+
+        currentChartJson  = snap.getChartJson();
+        currentChartTitle = snap.getChartTitle() != null ? snap.getChartTitle() : "";
+        exportConfig();
         setStatus("View restored from conversation.", "success");
     }
 
@@ -550,4 +675,90 @@ public class AppBean implements Serializable {
     public String getStatusMessage()                                { return statusMessage; }
     public String  getStatusTone()                                  { return statusTone; }
     public boolean isAnalysisViewActive()                          { return analysisViewActive; }
+
+    // ── Saved views ───────────────────────────────────────────────────────────
+
+    /**
+     * Saves the current grid + chart state as a named view.
+     * When in analysis view the column config is omitted (analysis columns don't
+     * belong to the base dataset), so loading always restores a clean base view.
+     */
+    public void saveCurrentView() {
+        String name = newViewName == null ? "" : newViewName.trim();
+        if (name.isEmpty()) {
+            setStatus("Enter a name for this view before saving.", "error");
+            return;
+        }
+        // Overwrite any existing view with the same name (case-insensitive)
+        savedViews.removeIf(v -> v.getName().equalsIgnoreCase(name));
+
+        String configToSave;
+        if (analysisViewActive) {
+            // Only preserve dataset; column names from a query result don't map to the base schema
+            JsonObject base = new JsonObject();
+            base.addProperty("dataset", selectedDataset);
+            base.add("sort", new JsonArray());
+            configToSave = new GsonBuilder().setPrettyPrinting().create().toJson(base);
+        } else {
+            configToSave = configJson;
+        }
+
+        String id = java.util.UUID.randomUUID().toString();
+        savedViews.add(new SavedView(id, name, configToSave, currentChartJson, currentChartTitle));
+        savedViews.sort(Comparator.comparing(SavedView::getName, String.CASE_INSENSITIVE_ORDER));
+        selectedSavedViewId = id;
+        newViewName = "";
+        setStatus("View “" + name + "” saved.", "success");
+    }
+
+    /** Loads the selected saved view — restores grid config and chart. */
+    public void loadSelectedView() {
+        if (selectedSavedViewId == null) return;
+        SavedView view = savedViews.stream()
+            .filter(v -> v.getId().equals(selectedSavedViewId))
+            .findFirst().orElse(null);
+        if (view == null) return;
+
+        try {
+            JsonObject config = JsonParser.parseString(view.getConfigJson()).getAsJsonObject();
+            String targetDs = config.has("dataset") ? config.get("dataset").getAsString() : selectedDataset;
+            if (!targetDs.equals(selectedDataset)) selectedDataset = targetDs;
+            loadDataset(selectedDataset);
+            applyTableConfig(config);
+        } catch (Exception ignored) {
+            loadDataset(selectedDataset);
+        }
+        analysisViewActive = false;
+        clearDrilldownContext();
+        currentChartJson  = view.getChartJson();
+        currentChartTitle = view.getChartTitle() != null ? view.getChartTitle() : "";
+        exportConfig();
+        setStatus("View “" + view.getName() + "” loaded.", "success");
+    }
+
+    /** Deletes the currently selected saved view. */
+    public void deleteSelectedView() {
+        if (selectedSavedViewId == null) return;
+        savedViews.stream()
+            .filter(v -> v.getId().equals(selectedSavedViewId))
+            .findFirst()
+            .ifPresent(v -> {
+                String deletedName = v.getName();
+                savedViews.remove(v);
+                selectedSavedViewId = savedViews.isEmpty() ? null : savedViews.get(0).getId();
+                setStatus("View “" + deletedName + "” deleted.", "info");
+            });
+    }
+
+    public List<SelectItem> getSavedViewOptions() {
+        return savedViews.stream()
+            .map(v -> new SelectItem(v.getId(), v.getName()))
+            .collect(Collectors.toList());
+    }
+
+    public boolean isHasSavedViews()              { return !savedViews.isEmpty(); }
+    public String  getNewViewName()               { return newViewName; }
+    public void    setNewViewName(String v)       { this.newViewName = v != null ? v : ""; }
+    public String  getSelectedSavedViewId()       { return selectedSavedViewId; }
+    public void    setSelectedSavedViewId(String v) { this.selectedSavedViewId = v; }
 }

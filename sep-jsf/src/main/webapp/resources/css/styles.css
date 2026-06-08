@@ -74,6 +74,20 @@ body { background: var(--bg); color: var(--text); font-size: 14px; }
 .field { display: flex; align-items: center; gap: 8px; }
 .field label, .field .ui-outputlabel { font-weight: 500; font-size: 0.85rem; white-space: nowrap; }
 
+.controlsDivider {
+    width: 1px;
+    height: 24px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+.savedViewSelect.ui-selectonemenu { min-width: 160px !important; }
+.viewNameInput.ui-inputfield       { min-width: 180px; height: 32px; padding: 4px 10px;
+                                     border: 1px solid var(--border); border-radius: 6px;
+                                     font-size: 0.85rem; }
+.viewNameInput.ui-inputfield:focus { outline: none; border-color: var(--accent); }
+.deleteViewBtn.ui-button           { padding: 6px 10px !important; color: var(--red) !important;
+                                     border-color: var(--border) !important; }
+
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .ui-button, .ui-commandlink {
     cursor: pointer;

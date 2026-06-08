@@ -9,7 +9,7 @@ public class ChatMessage implements Serializable {
     private String      rawContent;
     private String      htmlContent;
     private ChartResult chartResult;  // null when there is no chart for this message
-    private String      snapshotId;   // key into AppBean.querySnapshots; null if no SQL results
+    private String      snapshotId;   // key into AppBean.querySnapshots; null only for clarification messages
 
     public ChatMessage(String role, String title, String rawContent, String htmlContent) {
         this.role        = role;

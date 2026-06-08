@@ -28,6 +28,8 @@
             <!-- Controls -->
             <section class="panel controls">
                 <h:form id="controlsForm">
+
+                    <!-- Dataset + Reset -->
                     <div class="field">
                         <p:outputLabel for="dsSelect" value="Dataset"/>
                         <p:selectOneMenu id="dsSelect" value="#{appBean.selectedDataset}" styleClass="dsSelect">
@@ -39,6 +41,46 @@
                     <p:commandButton value="Reset View" styleClass="ghost"
                                      action="#{appBean.resetView}"
                                      update="mainForm jsonForm" ajax="true"/>
+
+                    <!-- Saved views divider -->
+                    <div class="controlsDivider"/>
+
+                    <!-- Load a saved view (only shown when at least one view is saved) -->
+                    <h:panelGroup layout="block" styleClass="field savedViewsField"
+                                  rendered="#{appBean.hasSavedViews}">
+                        <p:outputLabel for="savedViewSelect" value="Saved Views"/>
+                        <p:selectOneMenu id="savedViewSelect"
+                                         value="#{appBean.selectedSavedViewId}"
+                                         styleClass="savedViewSelect">
+                            <f:selectItems value="#{appBean.savedViewOptions}"/>
+                        </p:selectOneMenu>
+                        <p:commandButton value="Load" styleClass="primaryBtn"
+                                         action="#{appBean.loadSelectedView}"
+                                         process="savedViewSelect @this"
+                                         update="mainForm jsonForm :chartPanel :visualJsonForm controlsForm"
+                                         ajax="true"
+                                         oncomplete="renderSepChart()"/>
+                        <p:commandButton value="✕" title="Delete this view" styleClass="ghost deleteViewBtn"
+                                         action="#{appBean.deleteSelectedView}"
+                                         process="savedViewSelect @this"
+                                         update="controlsForm"
+                                         ajax="true"/>
+                    </h:panelGroup>
+
+                    <!-- Save current view -->
+                    <div class="field saveViewField">
+                        <p:inputText id="viewNameInput"
+                                     value="#{appBean.newViewName}"
+                                     placeholder="Name this view…"
+                                     styleClass="viewNameInput"
+                                     maxlength="80"/>
+                        <p:commandButton value="Save View" styleClass="ghost"
+                                         action="#{appBean.saveCurrentView}"
+                                         process="viewNameInput @this"
+                                         update="controlsForm"
+                                         ajax="true"/>
+                    </div>
+
                 </h:form>
             </section>
 
@@ -330,10 +372,10 @@
                                               rendered="#{msg.snapshotId != null}">
                                     <p:commandButton value="&#8617; Restore this view"
                                                      action="#{appBean.restoreSnapshot(msg.snapshotId)}"
-                                                     update="mainForm jsonForm"
+                                                     update="mainForm jsonForm :chartPanel :visualJsonForm"
                                                      ajax="true"
                                                      styleClass="ghost restoreFromChat"
-                                                     oncomplete="document.getElementById('mainForm').scrollIntoView({behavior:'smooth'})"/>
+                                                     oncomplete="renderSepChart(); document.getElementById('mainForm').scrollIntoView({behavior:'smooth'})"/>
                                 </h:panelGroup>
                             </article>
                         </ui:repeat>
